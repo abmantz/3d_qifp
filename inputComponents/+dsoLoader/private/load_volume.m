@@ -59,6 +59,124 @@ else
     error('LOAD_VOLUME_PADDING was expected to have 1 or 3 elements.');
 end
 
+%% BLARG
+
+dcmFiles = input.DcmImageFileTable.values(); % 1xN cell array
+Ndicom = size(dcmFiles);
+Ndicom = Ndicom(2);
+if Ndicom < 2
+    error('BLARG');
+end
+
+dicomImageInfo = dicominfo(dcmFiles{2});
+Nrows = dicomImageInfo.Rows;
+Ncols = dicomImageInfo.Columns;
+
+dicomImageArray = zeros(Nrows, Ncols, Ndicom);
+dicomImageInfoArray = cell(Ndicom, 1);
+InstanceNumbers = zeros(1,Ndicom); % these already live in DcmImageFileSeriesLocationsAvailable.values(){1}.instanceNumber, but whatever
+
+for i = 1:Ndicom
+
+    dicomImageFile = dcmFiles{i};
+    disp(['Reading ', dicomImageFile])
+    dicomImageSlice = dicomread(dicomImageFile);
+    dicomImageInfo = dicominfo(dicomImageFile);
+    
+    % Sarah moved this here to scale by Intercept and Slope if it exists for each slice 
+    % Also changed to * by slope 
+    if isfield(dicomImageInfo, 'RescaleIntercept')
+         dicomImageSlice = double(dicomImageSlice) + dicomImageInfo.RescaleIntercept;
+    end
+    if isfield(dicomImageInfo, 'RescaleSlope')
+         dicomImageSlice = double(dicomImageSlice) * dicomImageInfo.RescaleSlope;
+    end
+        
+    % Store the cropped image and its info into the image stack 
+    dicomImageArray(:,:,i) = dicomImageSlice;
+    dicomImageInfoArray{i} = dicomImageInfo;
+
+    InstanceNumbers(i) = dicomImageInfo.InstanceNumber;
+end
+
+% crudely check that the instance numbers are 1,2,...,Ndicom
+crap = InstanceNumbers - (1:Ndicom);
+if min(crap) ~= 0 || max(crap) ~= 0
+    error('DICOM instance number are not 1,2,...,N, and I am too stupid to deal with that.');
+end
+
+% crudely find the Nifti segmentation file
+dirname = fileparts(dicomImageFile);
+[segfound, segfile] = system(['ls ' dirname '/SEG*.nii']); % why yes, we are resorting to the shell. because stupid.
+if segfound > 0
+    error('Can''t find Nifti segmentation file (SEG*.nii in DICOM directory); too stupid to continue.')
+end
+segfile = strsplit(segfile); % because stupid
+segfile = segfile{1}; % because stupid
+
+% read in the Nifti segmentation file
+seginfo = niftiinfo(segfile);
+segarray = niftiread(segfile);
+segsize = size(segarray);
+segNrows = segsize(1);
+segNcols = segsize(2);
+segNslices = segsize(3);
+
+
+% seems that the RAS origin of the segmentation is at size(segarray)/2?
+% which... should?... coincide with center of the middle DICOM
+% figure out where this is in DICOM RAS to get the offset
+k = round(Ndicom/2);
+origin = dicomImageInfoArray{k}.ImagePositionPatient';
+basisX = dicomImageInfoArray{k}.ImageOrientationPatient(1:3)';
+basisY = dicomImageInfoArray{k}.ImageOrientationPatient(4:6)';
+dcmij = 0.5*[Ncols Nrows]; % NB X is 2nd index (column), Y is 1st
+% Below seems like it should have ij-1 in it, but empirically, it really
+% really doesn't look like it. Indices are the worst.
+dcmXY = [(dcmij(2))*dicomImageInfoArray{k}.PixelSpacing(2) (dcmij(1))*dicomImageInfoArray{k}.PixelSpacing(1)]; % offset from XY origin in mm
+dcmLPS = origin + double(dcmXY)*[basisX; basisY];
+dcmOriginRAS = [-dcmLPS(1) -dcmLPS(2) dcmLPS(3)];
+
+
+% Find the appropriate segmentation value for each voxel in the DICOM data.
+% Convert DICOM voxel coordinates to LPS, then to RAS, then to segmentation
+% voxel coordinates (and then Matlab array indices).
+segmentation = dicomImageArray * 0;
+[dcmi, dcmj] = meshgrid(1:Nrows, 1:Ncols);
+dcmij = double([dcmi(:), dcmj(:)]);
+clearvars dcmi dcmj
+nij = double(Nrows) * double(Ncols); % double to avoid overflowing short int
+disp('Interpolating segmentation to DICOM coordinates')
+for k = 1:Ndicom
+    origin = dicomImageInfoArray{k}.ImagePositionPatient';
+    basisX = dicomImageInfoArray{k}.ImageOrientationPatient(1:3)';
+    basisY = dicomImageInfoArray{k}.ImageOrientationPatient(4:6)';
+    % NB X is 2nd index (column), Y is 1st
+    % Below seems like it should have ij-1 in it, but empirically, it really
+    % really doesn't look like it. Indices are the worst.
+    dcmXY = [(dcmij(:,2))*dicomImageInfoArray{k}.PixelSpacing(2) (dcmij(:,1))*dicomImageInfoArray{k}.PixelSpacing(1)]; % offset from XY origin in mm
+    dcmLPS = repmat(origin, nij, 1) + dcmXY*[basisX; basisY];
+    dcmRAS = [-dcmLPS(:,1) -dcmLPS(:,2) dcmLPS(:,3)] - dcmOriginRAS;
+    dcmSEG = transformPointsInverse(seginfo.Transform, dcmRAS); % again seems to be better w/o accounting for 1-based indices...?
+    segmask = interp3(segarray, dcmSEG(:,2), dcmSEG(:,1), dcmSEG(:,3), 'nearest'); % again the X/Y column/row thing
+    segmentation(:,:,k) = reshape(segmask, Ncols, Nrows)'; % AGAIN the X/Y column/row 
+end
+
+
+% sanity check that the segmentation is aligned with the data
+% to be either eliminated or written to disk automatically
+[~, i] = max(sum(segarray, [1 2])); % slice with the most segmented junk in it
+img = zeros(Nrows, Ncols, 3);
+img(:,:,1) = dicomImageArray(:,:,i);
+img(:,:,2) = dicomImageArray(:,:,i);
+img(:,:,3) = dicomImageArray(:,:,i);
+img = (img - min(img, [],'all')) / (max(img, [], 'all') - min(img, [], 'all'));
+img(:,:,2) = img(:,:,2) .* (1.0 - cast(segmentation(:,:,i), 'double'));
+image(img)
+
+error('Breakpoints you say? Humbug!')
+
+
 %% Load Dicom Segmentation Value and Info
 dicomSegmentationObjectMask = squeeze(dicomread(dicomSegmentationObjectFile));
 dicomSegmentationObjectInfo = dicominfo(dicomSegmentationObjectFile);
@@ -83,6 +201,10 @@ dicomImageInfo = dicominfo(dcmImageFileArray(dicomImageSopInstanceUid));
 numSlicesDSO = numel(fieldnames(dicomSegmentationObjectInfo. ...
     ReferencedSeriesSequence.Item_1.ReferencedInstanceSequence));
 zResolutions = zeros(numSlicesDSO,1);
+
+if size(dicomSegmentationObjectMask, 3) ~= numSlicesDSO
+    error('Number of DICOMs referenced in the DSO header is not equal to the height of the pixel array');
+end
 
 %% Find Z vector direction
 if dicomImageInfo.Modality == 'MG'
@@ -261,6 +383,9 @@ dicomSegmentationObjectYIndexArray = ...
 
 firstDicomUid = dicomSegmentationObjectInfo.ReferencedSeriesSequence.Item_1.ReferencedInstanceSequence.(['Item_' num2str(dicomSegmentationObjectZIndexArray(1))]).ReferencedSOPInstanceUID;
 lastDicomUid  = dicomSegmentationObjectInfo.ReferencedSeriesSequence.Item_1.ReferencedInstanceSequence.(['Item_' num2str(dicomSegmentationObjectZIndexArray(end) - slicesAdded)]).ReferencedSOPInstanceUID;
+%numberofuids = numel(fieldnames(dicomSegmentationObjectInfo.ReferencedSeriesSequence.Item_1.ReferencedInstanceSequence));
+%firstDicomUid = dicomSegmentationObjectInfo.ReferencedSeriesSequence.Item_1.ReferencedInstanceSequence.(['Item_' num2str(1)]).ReferencedSOPInstanceUID;
+%lastDicomUid  = dicomSegmentationObjectInfo.ReferencedSeriesSequence.Item_1.ReferencedInstanceSequence.(['Item_' num2str(numberofuids)]).ReferencedSOPInstanceUID;
 
 
 firstDicomImageInfo = dicominfo(dcmImageFileArray(firstDicomUid));
