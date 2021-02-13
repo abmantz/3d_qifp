@@ -99,10 +99,15 @@ for i = 1:Ndicom
     InstanceNumbers(i) = dicomImageInfo.InstanceNumber;
 end
 
-% crudely check that the instance numbers are 1,2,...,Ndicom
+% sort slices by InstanceNumber
+[InstanceNumbers, order] = sort(InstanceNumbers);
+dicomImageArray = dicomImageArray(:,:,order);
+dicomImageInfoArray = dicomImageInfoArray(order);
+
+% check that the instance numbers are now 1,2,...,Ndicom (without gaps)
 crap = InstanceNumbers - (1:Ndicom);
 if min(crap) ~= 0 || max(crap) ~= 0
-    error('DICOM instance number are not 1,2,...,N, and I am too stupid to deal with that.');
+    error('DICOM InstanceNumbers are not 1,2,...,N, and I am too stupid to deal with that.');
 end
 
 % crudely find the Nifti segmentation file
@@ -127,6 +132,7 @@ segNslices = segsize(3);
 % which... should?... coincide with center of the middle DICOM
 % figure out where this is in DICOM RAS to get the offset
 k = round(Ndicom/2);
+% k = floor(Ndicom/2);
 origin = dicomImageInfoArray{k}.ImagePositionPatient';
 basisX = dicomImageInfoArray{k}.ImageOrientationPatient(1:3)';
 basisY = dicomImageInfoArray{k}.ImageOrientationPatient(4:6)';
@@ -136,6 +142,17 @@ dcmij = 0.5*[Ncols Nrows]; % NB X is 2nd index (column), Y is 1st
 dcmXY = [(dcmij(2))*dicomImageInfoArray{k}.PixelSpacing(2) (dcmij(1))*dicomImageInfoArray{k}.PixelSpacing(1)]; % offset from XY origin in mm
 dcmLPS = origin + double(dcmXY)*[basisX; basisY];
 dcmOriginRAS = [-dcmLPS(1) -dcmLPS(2) dcmLPS(3)];
+% dcmOriginRAS = 0.5 * [-dcmLPS(1) -dcmLPS(2) dcmLPS(3)];
+% k = ceil(Ndicom/2);
+% origin = dicomImageInfoArray{k}.ImagePositionPatient';
+% basisX = dicomImageInfoArray{k}.ImageOrientationPatient(1:3)';
+% basisY = dicomImageInfoArray{k}.ImageOrientationPatient(4:6)';
+% dcmij = 0.5*[Ncols Nrows]; % NB X is 2nd index (column), Y is 1st
+% % Below seems like it should have ij-1 in it, but empirically, it really
+% % really doesn't look like it. Indices are the worst.
+% dcmXY = [(dcmij(2))*dicomImageInfoArray{k}.PixelSpacing(2) (dcmij(1))*dicomImageInfoArray{k}.PixelSpacing(1)]; % offset from XY origin in mm
+% dcmLPS = origin + double(dcmXY)*[basisX; basisY];
+% dcmOriginRAS = dcmOriginRAS + 0.5 * [-dcmLPS(1) -dcmLPS(2) dcmLPS(3)];
 
 
 % Find the appropriate segmentation value for each voxel in the DICOM data.
@@ -158,7 +175,8 @@ for k = 1:Ndicom
     dcmLPS = repmat(origin, nij, 1) + dcmXY*[basisX; basisY];
     dcmRAS = [-dcmLPS(:,1) -dcmLPS(:,2) dcmLPS(:,3)] - dcmOriginRAS;
     dcmSEG = transformPointsInverse(seginfo.Transform, dcmRAS); % again seems to be better w/o accounting for 1-based indices...?
-    segmask = interp3(segarray, dcmSEG(:,2), dcmSEG(:,1), dcmSEG(:,3), 'nearest'); % again the X/Y column/row thing
+    segmask = interp3(segarray, dcmSEG(:,2), dcmSEG(:,1), dcmSEG(:,3), 'nearest', 0); % again the X/Y column/row thing
+    %segmask = interp3(double(segarray), dcmSEG(:,2), dcmSEG(:,1), dcmSEG(:,3), 'linear', 0); % again the X/Y column/row thing
     segmentation(:,:,k) = reshape(segmask, Ncols, Nrows)'; % AGAIN the X/Y column/row 
 end
 
