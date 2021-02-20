@@ -72,49 +72,52 @@ dicomImageInfo = dicominfo(dcmFiles{2});
 Nrows = dicomImageInfo.Rows;
 Ncols = dicomImageInfo.Columns;
 
-dicomImageArray = zeros(Nrows, Ncols, Ndicom);
-dicomImageInfoArray = cell(Ndicom, 1);
-InstanceNumbers = zeros(1,Ndicom); % these already live in DcmImageFileSeriesLocationsAvailable.values(){1}.instanceNumber, but whatever
+% do not need this for the moment
 
-for i = 1:Ndicom
-
-    dicomImageFile = dcmFiles{i};
-    disp(['Reading ', dicomImageFile])
-    dicomImageSlice = dicomread(dicomImageFile);
-    dicomImageInfo = dicominfo(dicomImageFile);
-    
-    % Sarah moved this here to scale by Intercept and Slope if it exists for each slice 
-    % Also changed to * by slope 
-    if isfield(dicomImageInfo, 'RescaleIntercept')
-         dicomImageSlice = double(dicomImageSlice) + dicomImageInfo.RescaleIntercept;
-    end
-    if isfield(dicomImageInfo, 'RescaleSlope')
-         dicomImageSlice = double(dicomImageSlice) * dicomImageInfo.RescaleSlope;
-    end
-        
-    % Store the cropped image and its info into the image stack 
-    dicomImageArray(:,:,i) = dicomImageSlice;
-    dicomImageInfoArray{i} = dicomImageInfo;
-
-    InstanceNumbers(i) = dicomImageInfo.InstanceNumber;
-end
-
-% sort slices by InstanceNumber
-[InstanceNumbers, order] = sort(InstanceNumbers);
-dicomImageArray = dicomImageArray(:,:,order);
-dicomImageInfoArray = dicomImageInfoArray(order);
-
-% check that the instance numbers are now 1,2,...,Ndicom (without gaps)
-crap = InstanceNumbers - (1:Ndicom);
-if min(crap) ~= 0 || max(crap) ~= 0
-    error('DICOM InstanceNumbers are not 1,2,...,N, and I am too stupid to deal with that.');
-end
+% dicomImageArray = zeros(Nrows, Ncols, Ndicom);
+% dicomImageInfoArray = cell(Ndicom, 1);
+% InstanceNumbers = zeros(1,Ndicom); % these already live in DcmImageFileSeriesLocationsAvailable.values(){1}.instanceNumber, but whatever
+% 
+% for i = 1:Ndicom
+%     dicomImageFile = dcmFiles{i};
+%     disp(['Reading ', dicomImageFile])
+%     dicomImageSlice = dicomread(dicomImageFile);
+%     dicomImageInfo = dicominfo(dicomImageFile);
+%     
+%     % Sarah moved this here to scale by Intercept and Slope if it exists for each slice 
+%     % Also changed to * by slope 
+%     if isfield(dicomImageInfo, 'RescaleIntercept')
+%          dicomImageSlice = double(dicomImageSlice) + dicomImageInfo.RescaleIntercept;
+%     end
+%     if isfield(dicomImageInfo, 'RescaleSlope')
+%          dicomImageSlice = double(dicomImageSlice) * dicomImageInfo.RescaleSlope;
+%     end
+%         
+%     % Store the cropped image and its info into the image stack 
+%     dicomImageArray(:,:,i) = dicomImageSlice;
+%     dicomImageInfoArray{i} = dicomImageInfo;
+% 
+%     InstanceNumbers(i) = dicomImageInfo.InstanceNumber;
+% end
+% 
+% % sort slices by InstanceNumber
+% [InstanceNumbers, order] = sort(InstanceNumbers);
+% dicomImageArray = dicomImageArray(:,:,order);
+% dicomImageInfoArray = dicomImageInfoArray(order);
+% 
+% % check that the instance numbers are now 1,2,...,Ndicom (without gaps)
+% crap = InstanceNumbers - (1:Ndicom);
+% if min(crap) ~= 0 || max(crap) ~= 0
+%     error('DICOM InstanceNumbers are not 1,2,...,N, and I am too stupid to deal with that.');
+% end
 
 % crudely find the Nifti segmentation file
-dirname = fileparts(dicomImageFile);
-[segfound, segfile] = system(['ls ' dirname '/SEG*.nii']); % why yes, we are resorting to the shell. because stupid.
+dirname = fileparts(dcmFiles{1});
+% why yes, we are resorting to the shell. because stupid.
+% RL is shorthand for "was written by Mango"
+[segfound, segfile] = system(['ls ' dirname '/SEG*RL.nii*']);
 if segfound > 0
-    error('Can''t find Nifti segmentation file (SEG*.nii in DICOM directory); too stupid to continue.')
+    error('Can''t find Nifti segmentation file (SEG*RL.nii in DICOM directory); too stupid to continue.')
 end
 segfile = strsplit(segfile); % because stupid
 segfile = segfile{1}; % because stupid
@@ -128,69 +131,125 @@ segNcols = segsize(2);
 segNslices = segsize(3);
 
 
-% seems that the RAS origin of the segmentation is at size(segarray)/2?
-% which... should?... coincide with center of the middle DICOM
-% figure out where this is in DICOM RAS to get the offset
-k = round(Ndicom/2);
-% k = floor(Ndicom/2);
-origin = dicomImageInfoArray{k}.ImagePositionPatient';
-basisX = dicomImageInfoArray{k}.ImageOrientationPatient(1:3)';
-basisY = dicomImageInfoArray{k}.ImageOrientationPatient(4:6)';
-dcmij = 0.5*[Ncols Nrows]; % NB X is 2nd index (column), Y is 1st
-% Below seems like it should have ij-1 in it, but empirically, it really
-% really doesn't look like it. Indices are the worst.
-dcmXY = [(dcmij(2))*dicomImageInfoArray{k}.PixelSpacing(2) (dcmij(1))*dicomImageInfoArray{k}.PixelSpacing(1)]; % offset from XY origin in mm
-dcmLPS = origin + double(dcmXY)*[basisX; basisY];
-dcmOriginRAS = [-dcmLPS(1) -dcmLPS(2) dcmLPS(3)];
-% dcmOriginRAS = 0.5 * [-dcmLPS(1) -dcmLPS(2) dcmLPS(3)];
-% k = ceil(Ndicom/2);
+% % % seems that the RAS origin of the segmentation is at size(segarray)/2?
+% % % which... should?... coincide with center of the middle DICOM
+% % % figure out where this is in DICOM RAS to get the offset
+% % k = round(Ndicom/2);
+% % % k = floor(Ndicom/2);
+% % origin = dicomImageInfoArray{k}.ImagePositionPatient';
+% % basisX = dicomImageInfoArray{k}.ImageOrientationPatient(1:3)';
+% % basisY = dicomImageInfoArray{k}.ImageOrientationPatient(4:6)';
+% % dcmij = 0.5*[Ncols Nrows]; % NB X is 2nd index (column), Y is 1st
+% % % Below seems like it should have ij-1 in it, but empirically, it really
+% % % really doesn't look like it. Indices are the worst.
+% % dcmXY = [(dcmij(2))*dicomImageInfoArray{k}.PixelSpacing(2) (dcmij(1))*dicomImageInfoArray{k}.PixelSpacing(1)]; % offset from XY origin in mm
+% % dcmLPS = origin + double(dcmXY)*[basisX; basisY];
+% % dcmOriginRAS = [-dcmLPS(1) -dcmLPS(2) dcmLPS(3)];
+% % % dcmOriginRAS = 0.5 * [-dcmLPS(1) -dcmLPS(2) dcmLPS(3)];
+% % % k = ceil(Ndicom/2);
+% % % origin = dicomImageInfoArray{k}.ImagePositionPatient';
+% % % basisX = dicomImageInfoArray{k}.ImageOrientationPatient(1:3)';
+% % % basisY = dicomImageInfoArray{k}.ImageOrientationPatient(4:6)';
+% % % dcmij = 0.5*[Ncols Nrows]; % NB X is 2nd index (column), Y is 1st
+% % % % Below seems like it should have ij-1 in it, but empirically, it really
+% % % % really doesn't look like it. Indices are the worst.
+% % % dcmXY = [(dcmij(2))*dicomImageInfoArray{k}.PixelSpacing(2) (dcmij(1))*dicomImageInfoArray{k}.PixelSpacing(1)]; % offset from XY origin in mm
+% % % dcmLPS = origin + double(dcmXY)*[basisX; basisY];
+% % % dcmOriginRAS = dcmOriginRAS + 0.5 * [-dcmLPS(1) -dcmLPS(2) dcmLPS(3)];
+% 
+% % % possibly better
+% % % seems that the origin of the segmentation is at the center of the array
+% % % assume this coincides with the dead center of the scan
+% % axis = dicomImageInfoArray{Ndicom}.ImagePositionPatient' - ...
+% %     dicomImageInfoArray{1}.ImagePositionPatient';
+% % k = 1;
+% % basisX = dicomImageInfoArray{k}.ImageOrientationPatient(1:3)';
+% % basisY = dicomImageInfoArray{k}.ImageOrientationPatient(4:6)';
+% % dcmLPS = dicomImageInfoArray{k}.ImagePositionPatient' + 0.5*axis + ...
+% %     0.5*double(Ncols-1)*dicomImageInfoArray{k}.PixelSpacing(1)*basisX + ...
+% %     0.5*double(Nrows-1)*dicomImageInfoArray{k}.PixelSpacing(2)*basisY;
+% % dcmOriginRAS = [-dcmLPS(1) -dcmLPS(2) dcmLPS(3)];
+% 
+% % actually, the original approach seems closer...
+% segorigin = transformPointsInverse(seginfo.Transform, [0 0 0]) + 1;
+% axis = (dicomImageInfoArray{Ndicom}.ImagePositionPatient' - ...
+%     dicomImageInfoArray{1}.ImagePositionPatient') / double(Ndicom-1);
+% k = 1;%round(segorigin(3));
 % origin = dicomImageInfoArray{k}.ImagePositionPatient';
 % basisX = dicomImageInfoArray{k}.ImageOrientationPatient(1:3)';
 % basisY = dicomImageInfoArray{k}.ImageOrientationPatient(4:6)';
-% dcmij = 0.5*[Ncols Nrows]; % NB X is 2nd index (column), Y is 1st
-% % Below seems like it should have ij-1 in it, but empirically, it really
-% % really doesn't look like it. Indices are the worst.
-% dcmXY = [(dcmij(2))*dicomImageInfoArray{k}.PixelSpacing(2) (dcmij(1))*dicomImageInfoArray{k}.PixelSpacing(1)]; % offset from XY origin in mm
-% dcmLPS = origin + double(dcmXY)*[basisX; basisY];
-% dcmOriginRAS = dcmOriginRAS + 0.5 * [-dcmLPS(1) -dcmLPS(2) dcmLPS(3)];
+% dcmXY = [(segorigin(1)-1)*dicomImageInfoArray{k}.PixelSpacing(2) (segorigin(2)-1)*dicomImageInfoArray{k}.PixelSpacing(1)];
+% dcmLPS = origin + dcmXY*[basisX; basisY] + (segorigin(3)-k)*axis;
+% dcmOriginRAS = [-dcmLPS(1) -dcmLPS(2) dcmLPS(3)];
+% 
+% 
+% % Find the appropriate segmentation value for each voxel in the DICOM data.
+% % Convert DICOM voxel coordinates to LPS, then to RAS, then to segmentation
+% % voxel coordinates (and then Matlab array indices).
+% segmentation = dicomImageArray * 0;
+% [dcmi, dcmj] = meshgrid(1:Nrows, 1:Ncols); % should probably swap cols/rows?
+% dcmij = double([dcmi(:), dcmj(:)]);
+% clearvars dcmi dcmj
+% nij = double(Nrows) * double(Ncols); % double to avoid overflowing short int
+% disp('Interpolating segmentation to DICOM coordinates')
+% for k = 1:Ndicom
+%     origin = dicomImageInfoArray{k}.ImagePositionPatient';
+%     basisX = dicomImageInfoArray{k}.ImageOrientationPatient(1:3)';
+%     basisY = dicomImageInfoArray{k}.ImageOrientationPatient(4:6)';
+%     % NB X is 2nd index (column), Y is 1st
+%     % Below seems like it should have ij-1 in it, but empirically, it really
+%     % really doesn't look like it. Indices are the worst.
+%     dcmXY = [(dcmij(:,2)-1)*dicomImageInfoArray{k}.PixelSpacing(2) (dcmij(:,1)-1)*dicomImageInfoArray{k}.PixelSpacing(1)]; % offset from XY origin in mm
+%     dcmLPS = repmat(origin, nij, 1) + dcmXY*[basisX; basisY];
+%     dcmRAS = [-dcmLPS(:,1) -dcmLPS(:,2) dcmLPS(:,3)] - dcmOriginRAS;
+%     dcmSEG = transformPointsInverse(seginfo.Transform, dcmRAS) + 1; % again seems to be better w/o accounting for 1-based indices...?
+%     segmask = interp3(segarray, dcmSEG(:,2), dcmSEG(:,1), dcmSEG(:,3), 'nearest', 0); % again the X/Y column/row thing
+%     %segmask = interp3(double(segarray), dcmSEG(:,2), dcmSEG(:,1), dcmSEG(:,3), 'linear', 0); % again the X/Y column/row thing
+%     segmentation(:,:,k) = reshape(segmask, Ncols, Nrows)'; % AGAIN the X/Y column/row 
+% end
+% 
+% % sanity check that the segmentation is aligned with the data
+% % to be either eliminated or written to disk automatically
+% [~, i] = max(sum(segmentation, [1 2])); % slice with the most segmented junk in it
+% img = zeros(Nrows, Ncols, 3);
+% img(:,:,1) = dicomImageArray(:,:,i);
+% img(:,:,2) = dicomImageArray(:,:,i);
+% img(:,:,3) = dicomImageArray(:,:,i);
+% img = (img - min(img, [],'all')) / (max(img, [], 'all') - min(img, [], 'all'));
+% img(:,:,2) = img(:,:,2) .* (1.0 - cast(segmentation(:,:,i), 'double'));
+% image(img)
 
+% read in the data in Nifti format, as converted from DICOM by Mango
+ninfo=niftiinfo([dirname '/mri.nii.gz']);
+nii=niftiread([dirname '/mri.nii.gz']);
+niisize = size(nii);
 
-% Find the appropriate segmentation value for each voxel in the DICOM data.
-% Convert DICOM voxel coordinates to LPS, then to RAS, then to segmentation
-% voxel coordinates (and then Matlab array indices).
-segmentation = dicomImageArray * 0;
-[dcmi, dcmj] = meshgrid(1:Nrows, 1:Ncols);
-dcmij = double([dcmi(:), dcmj(:)]);
-clearvars dcmi dcmj
-nij = double(Nrows) * double(Ncols); % double to avoid overflowing short int
-disp('Interpolating segmentation to DICOM coordinates')
-for k = 1:Ndicom
-    origin = dicomImageInfoArray{k}.ImagePositionPatient';
-    basisX = dicomImageInfoArray{k}.ImageOrientationPatient(1:3)';
-    basisY = dicomImageInfoArray{k}.ImageOrientationPatient(4:6)';
-    % NB X is 2nd index (column), Y is 1st
-    % Below seems like it should have ij-1 in it, but empirically, it really
-    % really doesn't look like it. Indices are the worst.
-    dcmXY = [(dcmij(:,2))*dicomImageInfoArray{k}.PixelSpacing(2) (dcmij(:,1))*dicomImageInfoArray{k}.PixelSpacing(1)]; % offset from XY origin in mm
-    dcmLPS = repmat(origin, nij, 1) + dcmXY*[basisX; basisY];
-    dcmRAS = [-dcmLPS(:,1) -dcmLPS(:,2) dcmLPS(:,3)] - dcmOriginRAS;
-    dcmSEG = transformPointsInverse(seginfo.Transform, dcmRAS); % again seems to be better w/o accounting for 1-based indices...?
-    segmask = interp3(segarray, dcmSEG(:,2), dcmSEG(:,1), dcmSEG(:,3), 'nearest', 0); % again the X/Y column/row thing
-    %segmask = interp3(double(segarray), dcmSEG(:,2), dcmSEG(:,1), dcmSEG(:,3), 'linear', 0); % again the X/Y column/row thing
-    segmentation(:,:,k) = reshape(segmask, Ncols, Nrows)'; % AGAIN the X/Y column/row 
+% almost certainly there is no coordinate transformation is needed
+if min(seginfo.Transform.T == ninfo.Transform.T, [], 'all') == 0
+    disp('Interpolating segmentation to data coordinates')
+    % not entirely sure X and Y are in the right order everywhere here
+    niiorigin = transformPointsInverse(ninfo.Transform, [0 0 0]);
+    niiRASorigin = transformPointsForward(ninfo.Transform, niiorigin);
+    [niii, niij, niik] = meshgrid(1:niisize(1), 1:niisize(2), 1:niisize(3));
+    niiIJK = [niii(:), niij(:), niik(:)];
+    clearvars niii niij niik
+    niiRAS = transformPointsForward(ninfo.Transform, niiIJK) - niiRASorigin;
+    niiSEG = transformPointsInverse(seginfo.Transform, niiRAS);
+    niisegmask = interp3(segarray, niiSEG(:,1), niiSEG(:,2), niiSEG(:,3), 'nearest', 0);
+    NIIsegmentation = reshape(niisegmask, niisize(1), niisize(2), niisize(3));
+else
+    NIIsegmentation = segarray;
 end
 
-
-% sanity check that the segmentation is aligned with the data
-% to be either eliminated or written to disk automatically
-[~, i] = max(sum(segarray, [1 2])); % slice with the most segmented junk in it
-img = zeros(Nrows, Ncols, 3);
-img(:,:,1) = dicomImageArray(:,:,i);
-img(:,:,2) = dicomImageArray(:,:,i);
-img(:,:,3) = dicomImageArray(:,:,i);
+[~, i] = max(sum(NIIsegmentation, [1 2])); % slice with the most segmented junk in it
+img = zeros(Ncols, Nrows, 3);
+img(:,:,1) = nii(:,:,i);
+img(:,:,2) = nii(:,:,i);
+img(:,:,3) = nii(:,:,i);
 img = (img - min(img, [],'all')) / (max(img, [], 'all') - min(img, [], 'all'));
-img(:,:,2) = img(:,:,2) .* (1.0 - cast(segmentation(:,:,i), 'double'));
-image(img)
+img(:,:,2) = img(:,:,2) .* (1.0 - cast(NIIsegmentation(:,:,i), 'double'));
+%image(img)
+imwrite(img, [dirname '/segcheck.jpg']);
 
 error('Breakpoints you say? Humbug!')
 
