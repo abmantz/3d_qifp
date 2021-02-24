@@ -72,18 +72,18 @@ dicomImageInfo = dicominfo(dcmFiles{2});
 Nrows = dicomImageInfo.Rows;
 Ncols = dicomImageInfo.Columns;
 
-% do not need this for the moment
+% we will apparently need the array of metadata
 
 % dicomImageArray = zeros(Nrows, Ncols, Ndicom);
-% dicomImageInfoArray = cell(Ndicom, 1);
-% InstanceNumbers = zeros(1,Ndicom); % these already live in DcmImageFileSeriesLocationsAvailable.values(){1}.instanceNumber, but whatever
-% 
-% for i = 1:Ndicom
-%     dicomImageFile = dcmFiles{i};
-%     disp(['Reading ', dicomImageFile])
-%     dicomImageSlice = dicomread(dicomImageFile);
-%     dicomImageInfo = dicominfo(dicomImageFile);
-%     
+dicomImageInfoArray = cell(Ndicom, 1);
+%InstanceNumbers = zeros(1,Ndicom); % these already live in DcmImageFileSeriesLocationsAvailable.values(){1}.instanceNumber, but whatever
+ 
+for i = 1:Ndicom
+    dicomImageFile = dcmFiles{i};
+    disp(['Reading ', dicomImageFile])
+    %dicomImageSlice = dicomread(dicomImageFile);
+    dicomImageInfo = dicominfo(dicomImageFile);
+    
 %     % Sarah moved this here to scale by Intercept and Slope if it exists for each slice 
 %     % Also changed to * by slope 
 %     if isfield(dicomImageInfo, 'RescaleIntercept')
@@ -92,19 +92,22 @@ Ncols = dicomImageInfo.Columns;
 %     if isfield(dicomImageInfo, 'RescaleSlope')
 %          dicomImageSlice = double(dicomImageSlice) * dicomImageInfo.RescaleSlope;
 %     end
-%         
-%     % Store the cropped image and its info into the image stack 
-%     dicomImageArray(:,:,i) = dicomImageSlice;
-%     dicomImageInfoArray{i} = dicomImageInfo;
-% 
-%     InstanceNumbers(i) = dicomImageInfo.InstanceNumber;
-% end
-% 
+        
+    % Store the cropped image and its info into the image stack 
+    %dicomImageArray(:,:,i) = dicomImageSlice;
+    dicomImageInfoArray{i} = dicomImageInfo;
+    break
+    InstanceNumbers(i) = dicomImageInfo.InstanceNumber;
+end
+for i = 1:Ndicom
+    dicomImageInfoArray{i} = dicomImageInfoArray{1}; % important parts will be fudged below
+end
+
 % % sort slices by InstanceNumber
 % [InstanceNumbers, order] = sort(InstanceNumbers);
-% dicomImageArray = dicomImageArray(:,:,order);
+% %dicomImageArray = dicomImageArray(:,:,order);
 % dicomImageInfoArray = dicomImageInfoArray(order);
-% 
+
 % % check that the instance numbers are now 1,2,...,Ndicom (without gaps)
 % crap = InstanceNumbers - (1:Ndicom);
 % if min(crap) ~= 0 || max(crap) ~= 0
@@ -224,7 +227,15 @@ ninfo=niftiinfo([dirname '/mri.nii.gz']);
 nii=niftiread([dirname '/mri.nii.gz']);
 niisize = size(nii);
 
-% almost certainly there is no coordinate transformation is needed
+% fudge the DICOM metadata to agree with the Nifti positioning and spacing
+for i = 1:Ndicom
+    dicomImageInfoArray{i}.PixelSpacing = ninfo.PixelDimensions(1:2);
+    dicomImageInfoArray{i}.zResolution = ninfo.PixelDimensions(3);
+    dicomImageInfoArray{i}.ImagePositionPatient = transformPointsForward(ninfo.Transform, ...
+        [0, 0, i-1]);
+end
+
+% almost certainly, no coordinate transformation is needed
 if min(seginfo.Transform.T == ninfo.Transform.T, [], 'all') == 0
     disp('Interpolating segmentation to data coordinates')
     % not entirely sure X and Y are in the right order everywhere here
@@ -250,191 +261,203 @@ img = (img - min(img, [],'all')) / (max(img, [], 'all') - min(img, [], 'all'));
 img(:,:,2) = img(:,:,2) .* (1.0 - cast(NIIsegmentation(:,:,i), 'double'));
 %image(img)
 imwrite(img, [dirname '/segcheck.jpg']);
+clearvars img
 
-error('Breakpoints you say? Humbug!')
+%error('Breakpoints you say? Humbug!')
+
+% name things as used later
+dicomImageArray = nii;
+% dicomImageInfoArray : already set
+zDicomSegmentationResolution = ninfo.PixelDimensions(3);
+xDicomSegmentationResolution = ninfo.PixelDimensions(2);
+yDicomSegmentationResolution = ninfo.PixelDimensions(1);
+dicomSegmentationObjectMask = NIIsegmentation;
+dicomSegmentationObjectInfo = dicomImageInfoArray{1}; % DUMMY value
+
+clearvars nii segarray NIIsegmentation
 
 
 %% Load Dicom Segmentation Value and Info
-dicomSegmentationObjectMask = squeeze(dicomread(dicomSegmentationObjectFile));
-dicomSegmentationObjectInfo = dicominfo(dicomSegmentationObjectFile);
-
-% Instance ID of the second image in the original dicom series) 
+% dicomSegmentationObjectMask = squeeze(dicomread(dicomSegmentationObjectFile));
+% dicomSegmentationObjectInfo = dicominfo(dicomSegmentationObjectFile);
+% 
+% % Instance ID of the second image in the original dicom series) 
+% % dicomImageSopInstanceUid = dicomSegmentationObjectInfo. ...
+% %     SharedFunctionalGroupsSequence.Item_1.DerivationImageSequence. ...
+% %     Item_1.SourceImageSequence.(['Item_' num2str(2)]). ...
+% %     ReferencedSOPInstanceUID;
 % dicomImageSopInstanceUid = dicomSegmentationObjectInfo. ...
-%     SharedFunctionalGroupsSequence.Item_1.DerivationImageSequence. ...
-%     Item_1.SourceImageSequence.(['Item_' num2str(2)]). ...
-%     ReferencedSOPInstanceUID;
-dicomImageSopInstanceUid = dicomSegmentationObjectInfo. ...
-    ReferencedSeriesSequence.Item_1.ReferencedInstanceSequence. ...
-    (['Item_' num2str(1)]).ReferencedSOPInstanceUID;
-
-
-% Metadata of the original image
-dicomImageInfo = dicominfo(dcmImageFileArray(dicomImageSopInstanceUid));
-
-% Get and extract image positions.
+%     ReferencedSeriesSequence.Item_1.ReferencedInstanceSequence. ...
+%     (['Item_' num2str(1)]).ReferencedSOPInstanceUID;
+% 
+% 
+% % Metadata of the original image
+% dicomImageInfo = dicominfo(dcmImageFileArray(dicomImageSopInstanceUid));
+% 
+% % Get and extract image positions.
+% % numSlicesDSO = numel(fieldnames(dicomSegmentationObjectInfo. ...
+% %     SharedFunctionalGroupsSequence.Item_1.DerivationImageSequence. ...
+% %     Item_1.SourceImageSequence));
 % numSlicesDSO = numel(fieldnames(dicomSegmentationObjectInfo. ...
-%     SharedFunctionalGroupsSequence.Item_1.DerivationImageSequence. ...
-%     Item_1.SourceImageSequence));
-numSlicesDSO = numel(fieldnames(dicomSegmentationObjectInfo. ...
-    ReferencedSeriesSequence.Item_1.ReferencedInstanceSequence));
-zResolutions = zeros(numSlicesDSO,1);
-
-if size(dicomSegmentationObjectMask, 3) ~= numSlicesDSO
-    error('Number of DICOMs referenced in the DSO header is not equal to the height of the pixel array');
-end
+%     ReferencedSeriesSequence.Item_1.ReferencedInstanceSequence));
+% zResolutions = zeros(numSlicesDSO,1);
+% 
+% if size(dicomSegmentationObjectMask, 3) ~= numSlicesDSO
+%     error('Number of DICOMs referenced in the DSO header is not equal to the height of the pixel array');
+% end
 
 %% Find Z vector direction
-if dicomImageInfo.Modality == 'MG'
-    zVector = 0;
-else
-    imageOrientation = dicomImageInfo.ImageOrientationPatient;
-    dc = zeros(2,3);
-    for row=1:2
-        for col=1:3
-            dc(row,col) = imageOrientation((row-1)*3+col);
-        end
-    end
-    zVector =cross(dc(1,:), dc(2,:));
-end
-% Also save instance numbers and acquisition times for helping with loading
-% later on.
-dicomAcquisitionTimes = double.empty(numSlicesDSO, 0);
-dicomInstanceNumbers = double.empty(numSlicesDSO, 0);
+% if dicomImageInfo.Modality == 'MG'
+%     zVector = 0;
+% else
+%     imageOrientation = dicomImageInfo.ImageOrientationPatient;
+%     dc = zeros(2,3);
+%     for row=1:2
+%         for col=1:3
+%             dc(row,col) = imageOrientation((row-1)*3+col);
+%         end
+%     end
+%     zVector =cross(dc(1,:), dc(2,:));
+% end
+% % Also save instance numbers and acquisition times for helping with loading
+% % later on.
+% dicomAcquisitionTimes = double.empty(numSlicesDSO, 0);
+% dicomInstanceNumbers = double.empty(numSlicesDSO, 0);
 
-for nSDSO = 1:numSlicesDSO
-    tmpSDSO = dicomSegmentationObjectInfo. ...
-        ReferencedSeriesSequence.Item_1.ReferencedInstanceSequence. ...
-        (['Item_' num2str(nSDSO)]).ReferencedSOPInstanceUID;
-
-    tmpDicomImageInfo2 = dicominfo(dcmImageFileArray(tmpSDSO));
-    
-    if dicomImageInfo.Modality == 'MG'
-        zResolutions(nSDSO) = 0;
-    else
-        zResolutions(nSDSO) = zVector * tmpDicomImageInfo2.ImagePositionPatient;
-    end
-    
-    % If acquisitionTime exists:
-    if (isfield(tmpDicomImageInfo2, 'AcquisitionTime'))
-        acquisitionTime = tmpDicomImageInfo2.AcquisitionTime;
-        % And is not unknown
-        if (~(strcmp(acquisitionTime, 'unknown') || isempty(acquisitionTime)))
-            dicomAcquisitionTimes(nSDSO) = int32(str2double(acquisitionTime));
-        end
-    end
-    
-    % If instance number exists:
-    if (isfield(tmpDicomImageInfo2, 'InstanceNumber'))
-        instanceNumber = tmpDicomImageInfo2.InstanceNumber;
-        % And is not unknown
-        if (~(strcmp(instanceNumber, 'unknown') || isempty(instanceNumber)))
-            dicomInstanceNumbers(nSDSO) = int32(str2double(instanceNumber));
-        end
-    end    
-    
-    if ((nSDSO > 1) && (zResolutions(nSDSO) == zResolutions(nSDSO-1)))
-        continue
-    end
-end
-nonSortedzResolutions = zResolutions;
-% Sort image positions
-zResolutions = sort(zResolutions);
+% for nSDSO = 1:numSlicesDSO
+%     tmpSDSO = dicomSegmentationObjectInfo. ...
+%         ReferencedSeriesSequence.Item_1.ReferencedInstanceSequence. ...
+%         (['Item_' num2str(nSDSO)]).ReferencedSOPInstanceUID;
+% 
+%     tmpDicomImageInfo2 = dicominfo(dcmImageFileArray(tmpSDSO));
+%     
+%     if dicomImageInfo.Modality == 'MG'
+%         zResolutions(nSDSO) = 0;
+%     else
+%         zResolutions(nSDSO) = zVector * tmpDicomImageInfo2.ImagePositionPatient;
+%     end
+%     
+%     % If acquisitionTime exists:
+%     if (isfield(tmpDicomImageInfo2, 'AcquisitionTime'))
+%         acquisitionTime = tmpDicomImageInfo2.AcquisitionTime;
+%         % And is not unknown
+%         if (~(strcmp(acquisitionTime, 'unknown') || isempty(acquisitionTime)))
+%             dicomAcquisitionTimes(nSDSO) = int32(str2double(acquisitionTime));
+%         end
+%     end
+%     
+%     % If instance number exists:
+%     if (isfield(tmpDicomImageInfo2, 'InstanceNumber'))
+%         instanceNumber = tmpDicomImageInfo2.InstanceNumber;
+%         % And is not unknown
+%         if (~(strcmp(instanceNumber, 'unknown') || isempty(instanceNumber)))
+%             dicomInstanceNumbers(nSDSO) = int32(str2double(instanceNumber));
+%         end
+%     end    
+%     
+%     if ((nSDSO > 1) && (zResolutions(nSDSO) == zResolutions(nSDSO-1)))
+%         continue
+%     end
+% end
+% nonSortedzResolutions = zResolutions;
+% % Sort image positions
+% zResolutions = sort(zResolutions);
 
 % Find X and Y pixel determined
-if dicomImageInfo.Modality == 'MG'
-    yDicomSegmentationResolution = dicomImageInfo.ImagerPixelSpacing(1);
-    xDicomSegmentationResolution = dicomImageInfo.ImagerPixelSpacing(2);
-else
-    yDicomSegmentationResolution = dicomImageInfo.PixelSpacing(1);
-    xDicomSegmentationResolution = dicomImageInfo.PixelSpacing(2);
-end
+% if dicomImageInfo.Modality == 'MG'
+%     yDicomSegmentationResolution = dicomImageInfo.ImagerPixelSpacing(1);
+%     xDicomSegmentationResolution = dicomImageInfo.ImagerPixelSpacing(2);
+% else
+%     yDicomSegmentationResolution = dicomImageInfo.PixelSpacing(1);
+%     xDicomSegmentationResolution = dicomImageInfo.PixelSpacing(2);
+% end
 
 % Z voxel spacing determined by the minimum distance between slices
-if (numel(zResolutions) > 1)
-    zDicomSegmentationResolution = min(abs(diff(zResolutions)));
-elseif dicomImageInfo.Modality == 'MG'
-    zDicomSegmentationResolution = 1;
-else
-    zDicomSegmentationResolution = dicomImageInfo.SpacingBetweenSlices;
-end
-% Ugly hack to see if the DSO slices are within 10% of the mean distance
-if any(((diff(zResolutions) - mean(diff(zResolutions)))/mean(diff(zResolutions))) > 0.1)
-    warning('DSO has non-contiguous slices');
-end
+% if (numel(zResolutions) > 1)
+%     zDicomSegmentationResolution = min(abs(diff(zResolutions)));
+% elseif dicomImageInfo.Modality == 'MG'
+%     zDicomSegmentationResolution = 1;
+% else
+%     zDicomSegmentationResolution = dicomImageInfo.SpacingBetweenSlices;
+% end
+% % Ugly hack to see if the DSO slices are within 10% of the mean distance
+% if any(((diff(zResolutions) - mean(diff(zResolutions)))/mean(diff(zResolutions))) > 0.1)
+%     warning('DSO has non-contiguous slices');
+% end
 
 % Available locations
-locationsAvailable = ... 
-    DcmImageFileSeriesLocationsAvailable(dicomImageInfo.SeriesInstanceUID);
-
-directedZLocationsAvailable = [locationsAvailable.directedZ];
+% locationsAvailable = ... 
+%     DcmImageFileSeriesLocationsAvailable(dicomImageInfo.SeriesInstanceUID);
+% 
+% directedZLocationsAvailable = [locationsAvailable.directedZ];
 
 % Find all locations that need to be loaded
-minLocation = min(zResolutions);
-maxLocation = max(zResolutions);
-inbetweenLocationsMask = ...
-    (directedZLocationsAvailable >= minLocation) & ...
-    (directedZLocationsAvailable <= maxLocation);
-
-unsortedInbetweenDirectedZLocations =  ...
-                      directedZLocationsAvailable(inbetweenLocationsMask);
-unsortedInbetweenLocations = locationsAvailable(inbetweenLocationsMask);
-
-[inbetweenDirectedZLocations, inbetweenDirectedZLocationsIndex] = ...
-        sort(unsortedInbetweenDirectedZLocations);
-
-inbetweenLocations = ...
-    unsortedInbetweenLocations(inbetweenDirectedZLocationsIndex);
-
-[missingSlices, missingSlicesIndex]  = ...
-    setdiff(inbetweenDirectedZLocations, nonSortedzResolutions);
-
-% For all missing slices in the DSO:
-zResolutions = zResolutions(end:-1:1);
-nMissingSlices = numel(missingSlices);
-slicesAdded  = nMissingSlices;
+% minLocation = min(zResolutions);
+% maxLocation = max(zResolutions);
+% inbetweenLocationsMask = ...
+%     (directedZLocationsAvailable >= minLocation) & ...
+%     (directedZLocationsAvailable <= maxLocation);
+% 
+% unsortedInbetweenDirectedZLocations =  ...
+%                       directedZLocationsAvailable(inbetweenLocationsMask);
+% unsortedInbetweenLocations = locationsAvailable(inbetweenLocationsMask);
+% 
+% [inbetweenDirectedZLocations, inbetweenDirectedZLocationsIndex] = ...
+%         sort(unsortedInbetweenDirectedZLocations);
+% 
+% inbetweenLocations = ...
+%     unsortedInbetweenLocations(inbetweenDirectedZLocationsIndex);
+% 
+% [missingSlices, missingSlicesIndex]  = ...
+%     setdiff(inbetweenDirectedZLocations, nonSortedzResolutions);
+% 
+% % For all missing slices in the DSO:
+% zResolutions = zResolutions(end:-1:1);
+% nMissingSlices = numel(missingSlices);
+% slicesAdded  = nMissingSlices;
 
 % Sanity checks for inbetween slices
-minAcquisitionTime = min(dicomAcquisitionTimes);
-maxAcquisitionTime = max(dicomAcquisitionTimes);
-minInstanceNumber = min(dicomInstanceNumbers);
-maxInstanceNumber = max(dicomInstanceNumbers);
-
-for iMissingSlice = 1:nMissingSlices
-    % Check if missing slice location is for the correct phase.
-    missingSliceInfo = ...
-        inbetweenLocations(missingSlicesIndex(iMissingSlice));
-    % Check if Acquisition Time is available.
-    if (isfield(missingSliceInfo, 'acquisitionTime'))
-        if ((round(str2double(missingSliceInfo.acquisitionTime)) < minAcquisitionTime) || ...
-                round(str2double(missingSliceInfo.acquisitionTime)) > maxAcquisitionTime )
-            disp('Multiple phases found in the series.');
-            slicesAdded = slicesAdded - 1;
-            continue;
-        end
-    elseif (isfield(missingSliceInfo, 'instanceNumber'))
-        warning('Acquisition time not available in missing slice, using instance number to group phases');
-        if ((int32(str2double(missingSliceInfo.instanceNumber)) < minInstanceNumber) || ...
-                int32(str2double(missingSliceInfo.instanceNumber)) > maxInstanceNumber )
-            disp('Multiple phases found in the series.');
-            slicesAdded = slicesAdded - 1;
-            continue;
-        end
-    else
-        warning('Couldn''t find acquisition time nor instance number in the metadata to separate slices, possible corruption in results');
-    end
-    
-    missingSlice = missingSlices(iMissingSlice);
-    insertPlace = find(diff((zResolutions - missingSlice) > 0));
-    zResolutions = [zResolutions(1:insertPlace); ...
-        missingSlice; ...
-        zResolutions((insertPlace+1):end)];
-    dicomSegmentationObjectMask = cat(3, ...
-        dicomSegmentationObjectMask(:,:,1:insertPlace), ...
-        false(size(dicomSegmentationObjectMask(:,:,1))), ....
-        dicomSegmentationObjectMask(:,:,(insertPlace+1):end) ...
-        );
-    
-end
+% minAcquisitionTime = min(dicomAcquisitionTimes);
+% maxAcquisitionTime = max(dicomAcquisitionTimes);
+% minInstanceNumber = min(dicomInstanceNumbers);
+% maxInstanceNumber = max(dicomInstanceNumbers);
+% 
+% for iMissingSlice = 1:nMissingSlices
+%     % Check if missing slice location is for the correct phase.
+%     missingSliceInfo = ...
+%         inbetweenLocations(missingSlicesIndex(iMissingSlice));
+%     % Check if Acquisition Time is available.
+%     if (isfield(missingSliceInfo, 'acquisitionTime'))
+%         if ((round(str2double(missingSliceInfo.acquisitionTime)) < minAcquisitionTime) || ...
+%                 round(str2double(missingSliceInfo.acquisitionTime)) > maxAcquisitionTime )
+%             disp('Multiple phases found in the series.');
+%             slicesAdded = slicesAdded - 1;
+%             continue;
+%         end
+%     elseif (isfield(missingSliceInfo, 'instanceNumber'))
+%         warning('Acquisition time not available in missing slice, using instance number to group phases');
+%         if ((int32(str2double(missingSliceInfo.instanceNumber)) < minInstanceNumber) || ...
+%                 int32(str2double(missingSliceInfo.instanceNumber)) > maxInstanceNumber )
+%             disp('Multiple phases found in the series.');
+%             slicesAdded = slicesAdded - 1;
+%             continue;
+%         end
+%     else
+%         warning('Couldn''t find acquisition time nor instance number in the metadata to separate slices, possible corruption in results');
+%     end
+%     
+%     missingSlice = missingSlices(iMissingSlice);
+%     insertPlace = find(diff((zResolutions - missingSlice) > 0));
+%     zResolutions = [zResolutions(1:insertPlace); ...
+%         missingSlice; ...
+%         zResolutions((insertPlace+1):end)];
+%     dicomSegmentationObjectMask = cat(3, ...
+%         dicomSegmentationObjectMask(:,:,1:insertPlace), ...
+%         false(size(dicomSegmentationObjectMask(:,:,1))), ....
+%         dicomSegmentationObjectMask(:,:,(insertPlace+1):end) ...
+%         );
+%     
+% end
 
 
 %% Lets calculate the padding from mm to voxels.
@@ -455,28 +478,33 @@ dicomSegmentationObjectYIndexArray = ...
 
 % Z-Index
 
-% firstDicomUid = dicomSegmentationObjectInfo.SharedFunctionalGroupsSequence.Item_1.DerivationImageSequence.Item_1.SourceImageSequence.(['Item_' num2str(dicomSegmentationObjectZIndexArray(1))]).ReferencedSOPInstanceUID;
-% lastDicomUid  = dicomSegmentationObjectInfo.SharedFunctionalGroupsSequence.Item_1.DerivationImageSequence.Item_1.SourceImageSequence.(['Item_' num2str(dicomSegmentationObjectZIndexArray(end) - slicesAdded)]).ReferencedSOPInstanceUID;
+% % firstDicomUid = dicomSegmentationObjectInfo.SharedFunctionalGroupsSequence.Item_1.DerivationImageSequence.Item_1.SourceImageSequence.(['Item_' num2str(dicomSegmentationObjectZIndexArray(1))]).ReferencedSOPInstanceUID;
+% % lastDicomUid  = dicomSegmentationObjectInfo.SharedFunctionalGroupsSequence.Item_1.DerivationImageSequence.Item_1.SourceImageSequence.(['Item_' num2str(dicomSegmentationObjectZIndexArray(end) - slicesAdded)]).ReferencedSOPInstanceUID;
+% 
+% firstDicomUid = dicomSegmentationObjectInfo.ReferencedSeriesSequence.Item_1.ReferencedInstanceSequence.(['Item_' num2str(dicomSegmentationObjectZIndexArray(1))]).ReferencedSOPInstanceUID;
+% lastDicomUid  = dicomSegmentationObjectInfo.ReferencedSeriesSequence.Item_1.ReferencedInstanceSequence.(['Item_' num2str(dicomSegmentationObjectZIndexArray(end) - slicesAdded)]).ReferencedSOPInstanceUID;
+% %numberofuids = numel(fieldnames(dicomSegmentationObjectInfo.ReferencedSeriesSequence.Item_1.ReferencedInstanceSequence));
+% %firstDicomUid = dicomSegmentationObjectInfo.ReferencedSeriesSequence.Item_1.ReferencedInstanceSequence.(['Item_' num2str(1)]).ReferencedSOPInstanceUID;
+% %lastDicomUid  = dicomSegmentationObjectInfo.ReferencedSeriesSequence.Item_1.ReferencedInstanceSequence.(['Item_' num2str(numberofuids)]).ReferencedSOPInstanceUID;
 
-firstDicomUid = dicomSegmentationObjectInfo.ReferencedSeriesSequence.Item_1.ReferencedInstanceSequence.(['Item_' num2str(dicomSegmentationObjectZIndexArray(1))]).ReferencedSOPInstanceUID;
-lastDicomUid  = dicomSegmentationObjectInfo.ReferencedSeriesSequence.Item_1.ReferencedInstanceSequence.(['Item_' num2str(dicomSegmentationObjectZIndexArray(end) - slicesAdded)]).ReferencedSOPInstanceUID;
-%numberofuids = numel(fieldnames(dicomSegmentationObjectInfo.ReferencedSeriesSequence.Item_1.ReferencedInstanceSequence));
-%firstDicomUid = dicomSegmentationObjectInfo.ReferencedSeriesSequence.Item_1.ReferencedInstanceSequence.(['Item_' num2str(1)]).ReferencedSOPInstanceUID;
-%lastDicomUid  = dicomSegmentationObjectInfo.ReferencedSeriesSequence.Item_1.ReferencedInstanceSequence.(['Item_' num2str(numberofuids)]).ReferencedSOPInstanceUID;
 
+% firstDicomImageInfo = dicominfo(dcmImageFileArray(firstDicomUid));
+% seriesUid = dicomImageInfo.SeriesInstanceUID;
+% lastDicomImageInfo = dicominfo(dcmImageFileArray(lastDicomUid));
 
-firstDicomImageInfo = dicominfo(dcmImageFileArray(firstDicomUid));
-seriesUid = dicomImageInfo.SeriesInstanceUID;
-lastDicomImageInfo = dicominfo(dcmImageFileArray(lastDicomUid));
-
-if firstDicomImageInfo.InstanceNumber < lastDicomImageInfo.InstanceNumber
+% if firstDicomImageInfo.InstanceNumber < lastDicomImageInfo.InstanceNumber
     signFlag = +1;
-else 
-    signFlag = -1;
-end
+% else 
+%     signFlag = -1;
+% end
 
-dicomSegmentationObjectZFirstIndex = firstDicomImageInfo.InstanceNumber - (signFlag *zVolumePaddingInVoxels);
-dicomSegmentationObjectZLastIndex = lastDicomImageInfo.InstanceNumber + (signFlag * zVolumePaddingInVoxels);
+% Slices 
+% dicomSegmentationObjectZFirstIndex = firstDicomImageInfo.InstanceNumber - (signFlag *zVolumePaddingInVoxels);
+% dicomSegmentationObjectZLastIndex = lastDicomImageInfo.InstanceNumber + (signFlag * zVolumePaddingInVoxels);
+dicomSegmentationObjectZFirstIndex = dicomSegmentationObjectZIndexArray(1) - ...
+    zVolumePaddingInVoxels;
+dicomSegmentationObjectZLastIndex  = dicomSegmentationObjectZIndexArray(end) + ...
+    zVolumePaddingInVoxels;
 
 dicomSegmentationObjectZFirstIndexOrig = dicomSegmentationObjectZIndexArray(1);
 dicomSegmentationObjectZLastIndexOrig  = dicomSegmentationObjectZIndexArray(end);
@@ -510,61 +538,69 @@ if dicomSegmentationObjectXLastIndex > size(dicomSegmentationObjectMask,2)
     dicomSegmentationObjectXLastIndex = size(dicomSegmentationObjectMask,2);
 end
 
+if dicomSegmentationObjectZFirstIndex < 1
+    dicomSegmentationObjectZFirstIndex = 1;
+end
+
+if dicomSegmentationObjectZLastIndex > size(dicomSegmentationObjectMask,3)
+    dicomSegmentationObjectZLastIndex = size(dicomSegmentationObjectMask,3);
+end
+
 %% Lets Load the Dicom Images.
 
-% Lets initialize the result array
-dicomImageArray = zeros( ...
-    dicomSegmentationObjectYLastIndex - dicomSegmentationObjectYFirstIndex + 1, ...
-    dicomSegmentationObjectXLastIndex - dicomSegmentationObjectXFirstIndex + 1, ...
-    abs(dicomSegmentationObjectZLastIndex - dicomSegmentationObjectZFirstIndex) + 1 ...
-    );
-dicomImageInfoArray = cell(...
-    abs(dicomSegmentationObjectZLastIndex - dicomSegmentationObjectZFirstIndex) + 1, ...
-    1);
-
-skippedSlicesIndex = [];
-for dicomSegmentationObjectSliceNo = ...
-        dicomSegmentationObjectZFirstIndex:signFlag:dicomSegmentationObjectZLastIndex
-    
-    % Load the slice referred by the Dicom Segmentation Object Info
-    try
-        % Convert the index in the loop to a 1..numel index
-        dicomImageIndex = dicomSegmentationObjectSliceNo - ...
-            min(dicomSegmentationObjectZFirstIndex, dicomSegmentationObjectZLastIndex) + 1;
-
-        dicomImageFile = DcmImageFileSeriesNumberArray([seriesUid '-' num2str(dicomSegmentationObjectSliceNo)]);
-        dicomImageSlice = dicomread(dicomImageFile);
-        dicomImageInfo = dicominfo(dicomImageFile);   
-
-        % Crop the Slice into a ROI
-        dicomImageSliceCropped = dicomImageSlice(...
-            dicomSegmentationObjectYFirstIndex:dicomSegmentationObjectYLastIndex, ...
-            dicomSegmentationObjectXFirstIndex:dicomSegmentationObjectXLastIndex);
-
-        % Sarah moved this here to scale by Intercept and Slope if it exists for each slice 
-        % Also changed to * by slope 
-        if isfield(dicomImageInfo, 'RescaleIntercept')
-             dicomImageSliceCropped = double(dicomImageSliceCropped) + dicomImageInfo.RescaleIntercept;
-        end
-        if isfield(dicomImageInfo, 'RescaleSlope')
-             dicomImageSliceCropped = double(dicomImageSliceCropped) * dicomImageInfo.RescaleSlope;
-        end
-        
-        
-        % Store the cropped image and its info into the image stack 
-        dicomImageArray(:,:,dicomImageIndex) = dicomImageSliceCropped;
-        dicomImageInfoArray{dicomImageIndex} = dicomImageInfo;
-    catch
-        warning('Not enough space for full padding');
-        skippedSlicesIndex = [skippedSlicesIndex, dicomImageIndex];
-    end
-end
-
-% Remove Blank slices
-if ~isempty(skippedSlicesIndex)
-    dicomImageInfoArray(skippedSlicesIndex) = [];
-    dicomImageArray(:,:,skippedSlicesIndex) = [];
-end
+% % Lets initialize the result array
+% dicomImageArray = zeros( ...
+%     dicomSegmentationObjectYLastIndex - dicomSegmentationObjectYFirstIndex + 1, ...
+%     dicomSegmentationObjectXLastIndex - dicomSegmentationObjectXFirstIndex + 1, ...
+%     abs(dicomSegmentationObjectZLastIndex - dicomSegmentationObjectZFirstIndex) + 1 ...
+%     );
+% dicomImageInfoArray = cell(...
+%     abs(dicomSegmentationObjectZLastIndex - dicomSegmentationObjectZFirstIndex) + 1, ...
+%     1);
+% 
+% skippedSlicesIndex = [];
+% for dicomSegmentationObjectSliceNo = ...
+%         dicomSegmentationObjectZFirstIndex:signFlag:dicomSegmentationObjectZLastIndex
+%     
+%     % Load the slice referred by the Dicom Segmentation Object Info
+%     try
+%         % Convert the index in the loop to a 1..numel index
+%         dicomImageIndex = dicomSegmentationObjectSliceNo - ...
+%             min(dicomSegmentationObjectZFirstIndex, dicomSegmentationObjectZLastIndex) + 1;
+% 
+%         dicomImageFile = DcmImageFileSeriesNumberArray([seriesUid '-' num2str(dicomSegmentationObjectSliceNo)]);
+%         dicomImageSlice = dicomread(dicomImageFile);
+%         dicomImageInfo = dicominfo(dicomImageFile);   
+% 
+%         % Crop the Slice into a ROI
+%         dicomImageSliceCropped = dicomImageSlice(...
+%             dicomSegmentationObjectYFirstIndex:dicomSegmentationObjectYLastIndex, ...
+%             dicomSegmentationObjectXFirstIndex:dicomSegmentationObjectXLastIndex);
+% 
+%         % Sarah moved this here to scale by Intercept and Slope if it exists for each slice 
+%         % Also changed to * by slope 
+%         if isfield(dicomImageInfo, 'RescaleIntercept')
+%              dicomImageSliceCropped = double(dicomImageSliceCropped) + dicomImageInfo.RescaleIntercept;
+%         end
+%         if isfield(dicomImageInfo, 'RescaleSlope')
+%              dicomImageSliceCropped = double(dicomImageSliceCropped) * dicomImageInfo.RescaleSlope;
+%         end
+%         
+%         
+%         % Store the cropped image and its info into the image stack 
+%         dicomImageArray(:,:,dicomImageIndex) = dicomImageSliceCropped;
+%         dicomImageInfoArray{dicomImageIndex} = dicomImageInfo;
+%     catch
+%         warning('Not enough space for full padding');
+%         skippedSlicesIndex = [skippedSlicesIndex, dicomImageIndex];
+%     end
+% end
+% 
+% % Remove Blank slices
+% if ~isempty(skippedSlicesIndex)
+%     dicomImageInfoArray(skippedSlicesIndex) = [];
+%     dicomImageArray(:,:,skippedSlicesIndex) = [];
+% end
 
 %% Find the new segmentation mask to fit the cropped volume
 dicomSegmentationObjectCropped = ...
@@ -579,13 +615,13 @@ padMask = repmat(padSliceMask, [1, 1, zVolumePaddingInVoxels]);
 dicomSegmentationObjectCropped = cat(3, padMask, dicomSegmentationObjectCropped, padMask);
 
 % Remove Blank slices
-if ~isempty(skippedSlicesIndex)
-    if signFlag == -1
-        dicomSegmentationObjectCropped(:,:,end - skippedSlicesIndex + 1) = [];
-    else
-        dicomSegmentationObjectCropped(:,:,skippedSlicesIndex) = [];
-    end
-end
+% if ~isempty(skippedSlicesIndex)
+%     if signFlag == -1
+%         dicomSegmentationObjectCropped(:,:,end - skippedSlicesIndex + 1) = [];
+%     else
+%         dicomSegmentationObjectCropped(:,:,skippedSlicesIndex) = [];
+%     end
+% end
 
 %% Create the result
 outputStructure.intensityVOI = dicomImageArray;
