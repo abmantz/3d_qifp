@@ -223,8 +223,8 @@ segNslices = segsize(3);
 % image(img)
 
 % read in the data in Nifti format, as converted from DICOM by Mango
-ninfo=niftiinfo([dirname '/mri.nii.gz']);
-nii=niftiread([dirname '/mri.nii.gz']);
+ninfo = niftiinfo([dirname '/mri.nii.gz']);
+nii = double(niftiread([dirname '/mri.nii.gz']));
 niisize = size(nii);
 
 % fudge the DICOM metadata to agree with the Nifti positioning and spacing
