@@ -35,7 +35,7 @@ function [ out ] = run( inputs )
     
     %% Middle Slice 
     middleSliceFeatures = {};
-    if inputs.middleSlice
+    if 0 %inputs.middleSlice
         [segmentationSlice, intensitySlice, intensitySliceInfo] ...
             = selectMiddleSlice(segmentationVOI, intensityVOI, intensityInfo);
         middleSliceFeatures = find2DFeatures(segmentationSlice, ...
@@ -44,11 +44,34 @@ function [ out ] = run( inputs )
     
     %% Largest Slice
     largestSliceFeatures = {};
-    if inputs.largestSlice
+    if 1 %inputs.largestSlice
         [segmentationSlice, intensitySlice, intensitySliceInfo] ...
             = selectLargestSlice(segmentationVOI, intensityVOI, intensityInfo);
         largestSliceFeatures = find2DFeatures(segmentationSlice, ...
             intensitySlice, intensitySliceInfo, lesion, customConfig);
+    end
+    
+    %% Aggregate slices
+    %multiFeatures = {};
+    multiFeatures = largestSliceFeatures;
+    n = size(multiFeatures);
+    n = n(1);
+    for i = 13:n
+        multiFeatures(i,2) = {0.0};
+    end
+    allSlices = find(squeeze(sum(sum(segmentationVOI(:,:,:),1),2)));
+    nSlices = size(allSlices);
+    nSlices = nSlices(1);
+    for i = 1:nSlices
+        [segmentationSlice, intensitySlice, intensitySliceInfo] ...
+            = selectThisSlice(allSlices(i), segmentationVOI, intensityVOI, intensityInfo);
+        thisSliceFeatures = find2DFeatures(segmentationSlice, ...
+            intensitySlice, intensitySliceInfo, lesion, customConfig);
+        for j = 13:n
+           z = multiFeatures(j,2);
+           zz = thisSliceFeatures(j,2);
+           multiFeatures(j,2) = { z{1} + zz{1} };
+        end
     end
     
     %% Return intensity values
@@ -58,6 +81,9 @@ function [ out ] = run( inputs )
                                       inputs.separator), ...
         convertOutputToStructureArray(largestSliceFeatures, ...
                                       inputs.largestSliceName , ...
+                                      inputs.separator), ...
+        convertOutputToStructureArray(multiFeatures, ...
+                                      '2D-MultiSlice', ...
                                       inputs.separator) ...
         );
 end
@@ -154,6 +180,15 @@ function [segmentationSlice, intensitySlice, intensitySliceInfo] ...
     segmentationSlice = logical(segmentationVOI(:,:,largestSlice));
     intensitySlice = intensityVOI(:,:, largestSlice);
     intensitySliceInfo = intensityInfo{largestSlice};
+end
+
+%% Select This Slice
+function [segmentationSlice, intensitySlice, intensitySliceInfo] ...
+    = selectThisSlice(index, segmentationVOI, intensityVOI, intensityInfo)
+    
+    segmentationSlice = logical(segmentationVOI(:,:,index));
+    intensitySlice = intensityVOI(:,:, index);
+    intensitySliceInfo = intensityInfo{index};
 end
 
 

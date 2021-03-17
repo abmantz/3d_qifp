@@ -55,10 +55,19 @@ for k = 1:4
         x = params(:,k);
         x = x(x<curMax(k) & x>curMin(k)); % only take the ones within range
     end
-    if isempty(x),
-        y = zeros(7,1);
+    if isempty(x)
+        y = zeros(14,1);
     else
-        y = [min(x); max(x); median(x); mean(x); std(x); skewness(x); kurtosis(x)];
+        histx = curMin(k) : histSpan(k)/29 : curMax(k); % above
+        p = curHist(:,k);
+        p = p / sum(p);
+        nz = p>0;
+        entropy = -sum(p(nz).*log(p(nz)));
+        [~,ind] = max(p);
+        mode = histx(ind);
+        y = [min(x); max(x); median(x); mean(x); std(x); skewness(x); kurtosis(x);
+            mad(x,0); mad(x,1); iqr(x); trimmean(x,25); harmmean(x);
+            mode; entropy;];
     end
     curStat = [curStat y];
 end
@@ -75,47 +84,61 @@ fv_str = {'Edge Sharpness - window min', ...
     'Edge Sharpness - window std', ...
     'Edge Sharpness - window skewness', ...
     'Edge Sharpness - window kurtosis', ...
+    'Edge Sharpness - window madmean', ...
+    'Edge Sharpness - window madmedian', ...
+    'Edge Sharpness - window iqr', ...
+    'Edge Sharpness - window trimmedmean25perc', ...
+    'Edge Sharpness - window harmmean', ...
+    'Edge Sharpness - window mode', ...
+    'Edge Sharpness - window entropy', ...
     'Edge Sharpness - scale min', ...
     'Edge Sharpness - scale max', ...
     'Edge Sharpness - scale median', ...
     'Edge Sharpness - scale mean', ...
     'Edge Sharpness - scale std', ...
     'Edge Sharpness - scale skewness', ...
-    'Edge Sharpness - scale kurtosis'
+    'Edge Sharpness - scale kurtosis', ...
+    'Edge Sharpness - scale madmean', ...
+    'Edge Sharpness - scale madmedian', ...
+    'Edge Sharpness - scale iqr', ...
+    'Edge Sharpness - scale trimmedmean25perc', ...
+    'Edge Sharpness - scale harmmean', ...
+    'Edge Sharpness - scale mode', ...
+    'Edge Sharpness - scale entropy' ...
     };
 
 featureVector = featureVector(:);
 
-OLD_EDGE_HIST = 1;
-
-% add histogram itself to the 
-qpv_str = {'window histogram','scale histrogram'};
-if OLD_EDGE_HIST
-    for k = 2:3
-        qpv(k,:) = linspace(curMin(k), curMax(k), 30);
-    end
-    qpv = qpv(2:3,:);
-    
-    for k = 1:2
-        for i = 1:size(qpv, 2)
-            fv_str{end+1} = ['Edge Sharpness - ' qpv_str{k} '-' num2str(i) ' (' num2str(qpv(k, i),'%3.2f') ')'];
-        end
-    end
-    featureVector = [featureVector; curHist(:)];
-else
-    qpv = [...
-        -Inf  0.94  1.33  1.62  1.89  2.17  2.52  3.11  3.99  5.43  8.71  Inf
-        -Inf  -908  -876  -854  -825  -790  -727  -542  -179    40  232   Inf
-        ];
-    for k = 2:3
-        p = histc(rawData{k}, qpv(k-1,:));
-        p=p+1e-6*sum(p);
-        p=p/sum(p);
-        featureVector = [featureVector; p];
-    end
-    for k = 1:2
-        for i = 1:size(qpv, 2)
-            fv_str{end+1} = ['Edge Sharpness - ' qpv_str{k} '-' num2str(i) ' (' num2str(qpv(k, i)) ')'];
-        end
-    end
-end
+% OLD_EDGE_HIST = 1;
+% 
+% % add histogram itself to the 
+% qpv_str = {'window histogram','scale histrogram'};
+% if OLD_EDGE_HIST
+%     for k = 2:3
+%         qpv(k,:) = linspace(curMin(k), curMax(k), 30);
+%     end
+%     qpv = qpv(2:3,:);
+%     
+%     for k = 1:2
+%         for i = 1:size(qpv, 2)
+%             fv_str{end+1} = ['Edge Sharpness - ' qpv_str{k} '-' num2str(i) ' (' num2str(qpv(k, i),'%3.2f') ')'];
+%         end
+%     end
+%     featureVector = [featureVector; curHist(:)];
+% else
+%     qpv = [...
+%         -Inf  0.94  1.33  1.62  1.89  2.17  2.52  3.11  3.99  5.43  8.71  Inf
+%         -Inf  -908  -876  -854  -825  -790  -727  -542  -179    40  232   Inf
+%         ];
+%     for k = 2:3
+%         p = histc(rawData{k}, qpv(k-1,:));
+%         p=p+1e-6*sum(p);
+%         p=p/sum(p);
+%         featureVector = [featureVector; p];
+%     end
+%     for k = 1:2
+%         for i = 1:size(qpv, 2)
+%             fv_str{end+1} = ['Edge Sharpness - ' qpv_str{k} '-' num2str(i) ' (' num2str(qpv(k, i)) ')'];
+%         end
+%     end
+% end

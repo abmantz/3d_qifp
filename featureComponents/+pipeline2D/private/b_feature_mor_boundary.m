@@ -194,7 +194,8 @@ if USE_LAII == 1
             end
         end
         
-        radius_denominator = [10,9,8,7,6,5,4,3,2];
+        %radius_denominator = [10,9,8,7,6,5,4,3,2];
+        radius_denominator = [10,8,5,3,2];
         if OLD_72_LESION_METHOD
             % old method (for 72-lesion)
             radius_list = round([bigR/6 bigR/3 bigR/2]);
@@ -249,6 +250,12 @@ if USE_LAII == 1
         p=p/sum(p);
         [c,l] = wavedec(p',3,'haar');
         res = c(l(1)+l(2));
+        
+        histx= .2:.1:.8; % above
+        [~,ind] = max(p);
+        mode = histx(ind);
+        nz = p>0;
+        theentropy = -sum(p(nz).*log(p(nz)));
 
         denominator = radius_denominator(radius_idx);
         
@@ -275,6 +282,42 @@ if USE_LAII == 1
         startPos = [startPos; length(fv_res)+1];
         fv_res = [fv_res skewness(laii)];
         featureList{length(featureList)+1} = ['LAII skewness r=1/' num2str(denominator) 'R' ];
+
+        startPos = [startPos; length(fv_res)+1];
+        fv_res = [fv_res median(laii)];
+        featureList{length(featureList)+1} = ['LAII median r=1/' num2str(denominator) 'R' ];
+
+        startPos = [startPos; length(fv_res)+1];
+        fv_res = [fv_res kurtosis(laii)];
+        featureList{length(featureList)+1} = ['LAII kurtosis r=1/' num2str(denominator) 'R' ];
+
+        startPos = [startPos; length(fv_res)+1];
+        fv_res = [fv_res mad(laii, 0)];
+        featureList{length(featureList)+1} = ['LAII madmean r=1/' num2str(denominator) 'R' ];
+
+        startPos = [startPos; length(fv_res)+1];
+        fv_res = [fv_res mad(laii, 1)];
+        featureList{length(featureList)+1} = ['LAII madmedian r=1/' num2str(denominator) 'R' ];
+
+        startPos = [startPos; length(fv_res)+1];
+        fv_res = [fv_res iqr(laii)];
+        featureList{length(featureList)+1} = ['LAII iqr r=1/' num2str(denominator) 'R' ];
+
+        startPos = [startPos; length(fv_res)+1];
+        fv_res = [fv_res trimmean(laii, 25)];
+        featureList{length(featureList)+1} = ['LAII trimmedmean25perc r=1/' num2str(denominator) 'R' ];
+
+        startPos = [startPos; length(fv_res)+1];
+        fv_res = [fv_res harmmean(laii)];
+        featureList{length(featureList)+1} = ['LAII harmmean r=1/' num2str(denominator) 'R' ];
+
+        startPos = [startPos; length(fv_res)+1];
+        fv_res = [fv_res mode];
+        featureList{length(featureList)+1} = ['LAII mode r=1/' num2str(denominator) 'R' ];
+
+        startPos = [startPos; length(fv_res)+1];
+        fv_res = [fv_res theentropy];
+        featureList{length(featureList)+1} = ['LAII entropy r=1/' num2str(denominator) 'R' ];
 
         laii_r(radius_idx, :) = laii;
         if (TEST_BIGR_MODE == 1)
@@ -337,12 +380,56 @@ if USE_RDS
     end
 
     startPos = [startPos; length(fv_res)+1];
+    fv_res = [fv_res min(rds.r)];
+    featureList{length(featureList)+1} = ['RDS Min'];
+
+    startPos = [startPos; length(fv_res)+1];
     fv_res = [fv_res mean(rds.r)];            % mean
     featureList{length(featureList)+1} = ['RDS Mean'];
     
     startPos = [startPos; length(fv_res)+1];
+    fv_res = [fv_res median(rds.r)];
+    featureList{length(featureList)+1} = ['RDS Median'];
+
+    startPos = [startPos; length(fv_res)+1];
     fv_res = [fv_res std(rds.r)];             % std
     featureList{length(featureList)+1} = ['RDS std'];
+
+    startPos = [startPos; length(fv_res)+1];
+    fv_res = [fv_res skewness(rds.r)];
+    featureList{length(featureList)+1} = ['RDS Skewness'];
+
+    startPos = [startPos; length(fv_res)+1];
+    fv_res = [fv_res kurtosis(rds.r)];
+    featureList{length(featureList)+1} = ['RDS Kurtosis'];
+
+    startPos = [startPos; length(fv_res)+1];
+    fv_res = [fv_res mad(rds.r, 0)];
+    featureList{length(featureList)+1} = ['RDS madmean'];
+
+    startPos = [startPos; length(fv_res)+1];
+    fv_res = [fv_res mad(rds.r, 1)];
+    featureList{length(featureList)+1} = ['RDS madmedian'];
+
+    startPos = [startPos; length(fv_res)+1];
+    fv_res = [fv_res iqr(rds.r)];
+    featureList{length(featureList)+1} = ['RDS IQR'];
+
+    startPos = [startPos; length(fv_res)+1];
+    fv_res = [fv_res range(rds.r)];
+    featureList{length(featureList)+1} = ['RDS Range'];
+
+    startPos = [startPos; length(fv_res)+1];
+    fv_res = [fv_res trimmean(rds.r, 25)];
+    featureList{length(featureList)+1} = ['RDS trimmedmean25perc'];
+
+    startPos = [startPos; length(fv_res)+1];
+    fv_res = [fv_res harmmean(rds.r)];
+    featureList{length(featureList)+1} = ['RDS harmmean'];
+
+    startPos = [startPos; length(fv_res)+1];
+    fv_res = [fv_res entropy(rds.r)]; % per commented line below
+    featureList{length(featureList)+1} = ['RDS entropy'];
 
     startPos = [startPos; length(fv_res)+1];
     fv_res = [fv_res N_comp];

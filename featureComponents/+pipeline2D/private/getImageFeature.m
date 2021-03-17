@@ -166,13 +166,18 @@ entropy=-sum(p(nz).*log(p(nz)));
 res=[res; entropy];
 
 %% 3. Peak position 1
-startPos = [startPos; length(res)+1];
-featureGroupList{length(featureGroupList)+1} = 'Peak Position';
-featureList{length(featureList)+1} = 'Peak Position';
+%startPos = [startPos; length(res)+1];
+%featureGroupList{length(featureGroupList)+1} = 'Peak Position';
+%featureList{length(featureList)+1} = 'Peak Position';
 [~,ind]=max(p);
-res=[res; ind];
+%res=[res; ind];
 
 %% 4. Histogram (min, max, median, ...)
+% added a bunch more dumb stats
+% assumed "madmean" and "madmedian" were from the Matlab "mad" function,
+% whose documentation does not appear to specify how the center is defined 
+% (because stupid)
+
 [~, tmp] = s_find_longest_axis(lesion.roi, 0);
 tmp = [
     length(d(:)); 
@@ -182,12 +187,16 @@ tmp = [
     tmp.major*lesion.PixelSpacing; 
     tmp.minor*lesion.PixelSpacing; 
     min(d); max(d); median(d); mean(d); std(d); skewness(d); kurtosis(d);
+    iqr(d); trimmean(d,25); harmmean(d);
+    mad(d,0); mad(d,1); 0.5*(qpv(ind)+qpv(ind+1));
     ]';
 fv_name = {
     'Lesion-Size (px^2)', 'Major Axis (px)', 'Minor Axis (px)', ...
     'Lesion-Size (mm^2)', 'Major Axis (mm)', 'Minor Axis (mm)', ...
     'Histogram-min','Histogram-max','Histogram-median', ...
-    'Histogram-mean','Histogram-std','Histogram-skewness','Histogram-kurtosis'};
+    'Histogram-mean','Histogram-std','Histogram-skewness','Histogram-kurtosis', ...
+    'Histogram-iqr', 'Histogram-trimmedmean25perc', 'Histogram-harmmean', ...
+    'Histogram-madmean', 'Histogram-madmedian', 'Hitogram-mode'};
 
 if GROUP_FV
     featureGroupList{length(featureGroupList)+1} = 'Histogram';
@@ -199,38 +208,38 @@ end
 [~,~,featureList] = AppendFeatureList(tmp', fv_name, res, startPos, featureList);
 
 %% 4.1 30-bin histogram itself
-tmp = p;
-fv_name = {};
-if OLD_HIST_BIN
-    for ii = 1:length(qpv)-1
-        fv_name{ii} = ['Histogram-bin-' num2str(ii) ' (' num2str(qpv(ii)) '-' num2str(qpv(ii+1)) ')'];
-    end
-else
-    for ii = 1:length(qpv)-1
-%        fv_name{ii} = sprintf('Histogram-bin-%d (%4.0f-%4.0f)', ii, qpv(ii), qpv(ii+1));
-         fv_name{ii} = sprintf('Histogram-bin-%d', ii);
-    end
-end
-if GROUP_FV
-    featureGroupList{length(featureGroupList)+1} = 'Histogram-bin';
-    startPos = [startPos; length(res)+1];
-    res=[res; tmp'];
-else
-    [res startPos featureGroupList] = AppendFeatureList(tmp', fv_name, res, startPos, featureGroupList);
-end
-[~,~,featureList] = AppendFeatureList(tmp', fv_name, res, startPos, featureList);
+% tmp = p;
+% fv_name = {};
+% if OLD_HIST_BIN
+%     for ii = 1:length(qpv)-1
+%         fv_name{ii} = ['Histogram-bin-' num2str(ii) ' (' num2str(qpv(ii)) '-' num2str(qpv(ii+1)) ')'];
+%     end
+% else
+%     for ii = 1:length(qpv)-1
+% %        fv_name{ii} = sprintf('Histogram-bin-%d (%4.0f-%4.0f)', ii, qpv(ii), qpv(ii+1));
+%          fv_name{ii} = sprintf('Histogram-bin-%d', ii);
+%     end
+% end
+% if GROUP_FV
+%     featureGroupList{length(featureGroupList)+1} = 'Histogram-bin';
+%     startPos = [startPos; length(res)+1];
+%     res=[res; tmp'];
+% else
+%     [res startPos featureGroupList] = AppendFeatureList(tmp', fv_name, res, startPos, featureGroupList);
+% end
+% [~,~,featureList] = AppendFeatureList(tmp', fv_name, res, startPos, featureList);
 
 %% 5. Difference in and out 1
-startPos = [startPos; length(res)+1];
-featureGroupList{length(featureGroupList)+1} = 'Difference In and Out';
-featureList{length(featureList)+1} = 'Difference In and Out';
-res=[res; mean(do)-mean(d)];
+% startPos = [startPos; length(res)+1];
+% featureGroupList{length(featureGroupList)+1} = 'Difference In and Out';
+% featureList{length(featureList)+1} = 'Difference In and Out';
+% res=[res; mean(do)-mean(d)];
 
 %% 6. Variance 1
-startPos = [startPos; length(res)+1];
-featureGroupList{length(featureGroupList)+1} = 'Variance';
-featureList{length(featureList)+1} = 'Variance';
-res=[res; std(d)];
+% startPos = [startPos; length(res)+1];
+% featureGroupList{length(featureGroupList)+1} = 'Variance';
+% featureList{length(featureList)+1} = 'Variance';
+% res=[res; std(d)];
 
 %% 7. Gabor 32
 % The first and the second moments of the energy
@@ -239,16 +248,16 @@ res=[res; std(d)];
 % To achieve the best result, a bank of Gabor filters is
 % designed for 4 levels and 8 orientations to have the highest
 % sensitivity to the different lesion regions.
-tmp = GetFeatureGabor(lesion)';
-if GROUP_FV
-    startPos = [startPos; length(res)+1];
-    res=[res; tmp];
-    featureGroupList{length(featureGroupList)+1} = 'Gabor';
-else
-    [res startPos featureGroupList] = ...
-        AppendFeatureList(tmp, 'Gabor', res, startPos, featureGroupList);
-end
-[~,~,featureList] = AppendFeatureList(tmp, 'Gabor', res, startPos, featureList);
+% tmp = GetFeatureGabor(lesion)';
+% if GROUP_FV
+%     startPos = [startPos; length(res)+1];
+%     res=[res; tmp];
+%     featureGroupList{length(featureGroupList)+1} = 'Gabor';
+% else
+%     [res startPos featureGroupList] = ...
+%         AppendFeatureList(tmp, 'Gabor', res, startPos, featureGroupList);
+% end
+% [~,~,featureList] = AppendFeatureList(tmp, 'Gabor', res, startPos, featureList);
 
 %% 8. Edge Sharpness feature
 [tmp fv_name] = getEdgeFeatureVector(lesion, 0, ORGAN, config_profile);
@@ -263,96 +272,96 @@ end
 [~,~,featureList] = AppendFeatureList(tmp', fv_name, res, startPos, featureList);
 
 %% 9. Haar on Histogram 2
-startPos = [startPos; length(res)+1];
-[c,l] = wavedec(p(2 : NUM_BINS)', 3,'haar');
-%res=[res; c(l(1)+l(2))];
-startPos = [startPos; length(res)+1];
-res=[res; c];
-featureGroupList{length(featureGroupList)+1} = 'Haar on Histogram';
-[~,~,featureList] = AppendFeatureList(c, 'Haar on Histogram', res, startPos, featureList);
+% startPos = [startPos; length(res)+1];
+% [c,l] = wavedec(p(2 : NUM_BINS)', 3,'haar');
+% %res=[res; c(l(1)+l(2))];
+% startPos = [startPos; length(res)+1];
+% res=[res; c];
+% featureGroupList{length(featureGroupList)+1} = 'Haar on Histogram';
+% [~,~,featureList] = AppendFeatureList(c, 'Haar on Histogram', res, startPos, featureList);
 
-%featureList{length(featureList)+1} = 'Haar on Histogram';
+%%featureList{length(featureList)+1} = 'Haar on Histogram';
 
 %% 9.1 Contrast
-michelson_contrast = (max(d) - min(d))/(max(d)+ min(d));
-normalized_d = (d - min(d));
-normalized_d = normalized_d/max(d);
-rms_contrast = sqrt(mean((normalized_d - mean(normalized_d)).^2));
-tmp = [
-    michelson_contrast;
-    rms_contrast;
-    ]';
-fv_name = {
-    'Michelson Contrast',
-    'RMS Contrast'};
-
-if GROUP_FV
-    featureGroupList{length(featureGroupList)+1} = 'Contrast';
-    startPos = [startPos; length(res)+1];
-    res=[res; tmp'];
-else
-    [res, startPos, featureGroupList] = AppendFeatureList(tmp', fv_name, res, startPos, featureGroupList);
-end
-[~,~,featureList] = AppendFeatureList(tmp', fv_name, res, startPos, featureList);
+% michelson_contrast = (max(d) - min(d))/(max(d)+ min(d));
+% normalized_d = (d - min(d));
+% normalized_d = normalized_d/max(d);
+% rms_contrast = sqrt(mean((normalized_d - mean(normalized_d)).^2));
+% tmp = [
+%     michelson_contrast;
+%     rms_contrast;
+%     ]';
+% fv_name = {
+%     'Michelson Contrast',
+%     'RMS Contrast'};
+% 
+% if GROUP_FV
+%     featureGroupList{length(featureGroupList)+1} = 'Contrast';
+%     startPos = [startPos; length(res)+1];
+%     res=[res; tmp'];
+% else
+%     [res, startPos, featureGroupList] = AppendFeatureList(tmp', fv_name, res, startPos, featureGroupList);
+% end
+% [~,~,featureList] = AppendFeatureList(tmp', fv_name, res, startPos, featureList);
 
 
 %% 9.2 GLCM
-gl_img = lesion.image;
-x = lesion.roi.x - double(lesion.offset.x);
-y = lesion.roi.y - double(lesion.offset.y);
-
-% find the biggest rect and apply the feature extraction
-gl_roiMask = roipoly(gl_img, x, y) ;
-gl_bbox = regionprops(double(gl_roiMask), 'BoundingBox') ;
-gl_bbox = ceil(gl_bbox.BoundingBox) ;
-gl_roi = gl_img ;
-
-% img contains ROI only, no surrounding content
-gl_roi(~gl_roiMask) = 0 ;
-gl_ROI = gl_roi(gl_bbox(2):gl_bbox(2) + gl_bbox(4) - 1, gl_bbox(1):gl_bbox(1) + gl_bbox(3) - 1);
-
-gl_tmp_lesion.img = double(gl_ROI);
-gl_rect = s_find_biggest_rect(gl_tmp_lesion);
-gl_tmp_lesion.cropped = imcrop(gl_tmp_lesion.img, gl_rect);
-
-%Distance 2
-[gl_val, gl_tmp] = glcm(gl_tmp_lesion.cropped, 2, customConfig);
-tmp = gl_tmp';
-fv_name = gl_val'; 
-if GROUP_FV
-    featureGroupList{length(featureGroupList)+1} = 'GLCMDistance2';
-    startPos = [startPos; length(res)+1];
-    res=[res; tmp'];
-else
-    [res startPos featureGroupList] = AppendFeatureList(tmp', fv_name, res, startPos, featureGroupList);
-end
-[~,~,featureList] = AppendFeatureList(tmp', fv_name, res, startPos, featureList);
-
-%Distance 3
-[gl_val, gl_tmp] = glcm(gl_tmp_lesion.cropped, 3, customConfig);
-tmp = gl_tmp';
-fv_name = gl_val'; 
-if GROUP_FV
-    featureGroupList{length(featureGroupList)+1} = 'GLCMDistance3';
-    startPos = [startPos; length(res)+1];
-    res=[res; tmp'];
-else
-    [res startPos featureGroupList] = AppendFeatureList(tmp', fv_name, res, startPos, featureGroupList);
-end
-[~,~,featureList] = AppendFeatureList(tmp', fv_name, res, startPos, featureList);
-
-%Distance 5
-[gl_val, gl_tmp] = glcm(gl_tmp_lesion.cropped, 5, customConfig);
-tmp = gl_tmp';
-fv_name = gl_val'; 
-if GROUP_FV
-    featureGroupList{length(featureGroupList)+1} = 'GLCMDistance5';
-    startPos = [startPos; length(res)+1];
-    res=[res; tmp'];
-else
-    [res startPos featureGroupList] = AppendFeatureList(tmp', fv_name, res, startPos, featureGroupList);
-end
-[~,~,featureList] = AppendFeatureList(tmp', fv_name, res, startPos, featureList);
+% gl_img = lesion.image;
+% x = lesion.roi.x - double(lesion.offset.x);
+% y = lesion.roi.y - double(lesion.offset.y);
+% 
+% % find the biggest rect and apply the feature extraction
+% gl_roiMask = roipoly(gl_img, x, y) ;
+% gl_bbox = regionprops(double(gl_roiMask), 'BoundingBox') ;
+% gl_bbox = ceil(gl_bbox.BoundingBox) ;
+% gl_roi = gl_img ;
+% 
+% % img contains ROI only, no surrounding content
+% gl_roi(~gl_roiMask) = 0 ;
+% gl_ROI = gl_roi(gl_bbox(2):gl_bbox(2) + gl_bbox(4) - 1, gl_bbox(1):gl_bbox(1) + gl_bbox(3) - 1);
+% 
+% gl_tmp_lesion.img = double(gl_ROI);
+% gl_rect = s_find_biggest_rect(gl_tmp_lesion);
+% gl_tmp_lesion.cropped = imcrop(gl_tmp_lesion.img, gl_rect);
+% 
+% %Distance 2
+% [gl_val, gl_tmp] = glcm(gl_tmp_lesion.cropped, 2, customConfig);
+% tmp = gl_tmp';
+% fv_name = gl_val'; 
+% if GROUP_FV
+%     featureGroupList{length(featureGroupList)+1} = 'GLCMDistance2';
+%     startPos = [startPos; length(res)+1];
+%     res=[res; tmp'];
+% else
+%     [res startPos featureGroupList] = AppendFeatureList(tmp', fv_name, res, startPos, featureGroupList);
+% end
+% [~,~,featureList] = AppendFeatureList(tmp', fv_name, res, startPos, featureList);
+% 
+% %Distance 3
+% [gl_val, gl_tmp] = glcm(gl_tmp_lesion.cropped, 3, customConfig);
+% tmp = gl_tmp';
+% fv_name = gl_val'; 
+% if GROUP_FV
+%     featureGroupList{length(featureGroupList)+1} = 'GLCMDistance3';
+%     startPos = [startPos; length(res)+1];
+%     res=[res; tmp'];
+% else
+%     [res startPos featureGroupList] = AppendFeatureList(tmp', fv_name, res, startPos, featureGroupList);
+% end
+% [~,~,featureList] = AppendFeatureList(tmp', fv_name, res, startPos, featureList);
+% 
+% %Distance 5
+% [gl_val, gl_tmp] = glcm(gl_tmp_lesion.cropped, 5, customConfig);
+% tmp = gl_tmp';
+% fv_name = gl_val'; 
+% if GROUP_FV
+%     featureGroupList{length(featureGroupList)+1} = 'GLCMDistance5';
+%     startPos = [startPos; length(res)+1];
+%     res=[res; tmp'];
+% else
+%     [res startPos featureGroupList] = AppendFeatureList(tmp', fv_name, res, startPos, featureGroupList);
+% end
+% [~,~,featureList] = AppendFeatureList(tmp', fv_name, res, startPos, featureList);
 
 %% 10. Daube on Histogram
 % Example:
@@ -361,81 +370,81 @@ end
 % We collect the approx. coefficient at 4x downsampled image (18x18) for
 % the 64x64 input image ("inside")
 
-[c,s] = wavedec2(inside,4,'db8');
-tmp = c(1:s(1,1)*s(1,2))'/100000;
-if GROUP_FV
-    startPos = [startPos; length(res)+1];
-    res=[res; tmp];
-    featureGroupList{length(featureGroupList)+1} = 'Daube on Histogram';
-else
-    [res startPos featureGroupList] = ...
-        AppendFeatureList(tmp, 'Daube on Histogram', res, startPos, featureGroupList);
-end
-[~,~,featureList] = AppendFeatureList(tmp, 'Daube on Histogram', res, startPos, featureList);
+% [c,s] = wavedec2(inside,4,'db8');
+% tmp = c(1:s(1,1)*s(1,2))'/100000;
+% if GROUP_FV
+%     startPos = [startPos; length(res)+1];
+%     res=[res; tmp];
+%     featureGroupList{length(featureGroupList)+1} = 'Daube on Histogram';
+% else
+%     [res startPos featureGroupList] = ...
+%         AppendFeatureList(tmp, 'Daube on Histogram', res, startPos, featureGroupList);
+% end
+% [~,~,featureList] = AppendFeatureList(tmp, 'Daube on Histogram', res, startPos, featureList);
 
 %% 11. Histogram on edge
-mask = poly2mask(poly.x, poly.y, h, w);
-% curve = sqrt((poly.x-double(centerX)).^2+(poly.y-double(centerY)).^2);
-% radius = min(20,ceil(0.5*mean(curve)));
-radius = 5;
-se = strel('disk',radius);
-maskD = imdilate(mask,se);
-maskE = imerode(mask,se);
-% maskEdge = maskD-maskE;   % never used
-maskInEdge = mask-maskE;
-maskOutEdge = maskD-mask;
-nulVal = min(min(Icrop))-2;
-
-% tmpImg = Icrop.*maskEdge+((~maskEdge).*nulVal);
-% tmpImg = tmpImg(:);
-% tmpImg(find(tmpImg<=nulVal+1))=[];
-
-tmpImg1 = Icrop.*maskInEdge+((~maskInEdge).*nulVal);
-tmpImg1 = tmpImg1(:);
-tmpImg1(tmpImg1<=nulVal+1)=[];
-tmpImg2 = Icrop.*maskOutEdge+((~maskOutEdge).*nulVal);
-tmpImg2 = tmpImg2(:);
-tmpImg2(tmpImg2<=nulVal+1)=[];
-
-binCnt = max(8, min(min(length(tmpImg1)/30, length(tmpImg2)/30), 30));
-bins = linspace(min([tmpImg1; tmpImg2]), max([tmpImg1; tmpImg2]), binCnt);
-[h1 ] = hist(tmpImg1, bins);
-[h2 ] = hist(tmpImg2, bins);
-h1=h1/sum(h1);h2=h2/sum(h2);    % normalization
-% d1 = sum((h1-h2).^2./(h1+h2));
-d2 = sum(min(h1,h2).*(h1+h2));
-startPos = [startPos; length(res)+1];
-res=[res; d2];
-featureGroupList{length(featureGroupList)+1} = 'Histogram on Edge';
-featureList{length(featureList)+1} = 'Histogram on Edge';
-if 0
-    % visualization
-    close all;
-    subplot(2,2,1);
-    imgToShow = Icrop.*maskEdge;
-    image(CTWindowing(imgToShow));axis image;axis off;colormap(gray(256));
-    subplot(2,2,2);
-    imgToShow(:,find(sum(maskEdge)==0))=[];
-    imgToShow(find(sum(maskEdge')==0),:)=[];
-    image(CTWindowing(imgToShow));axis image;axis off;colormap(gray(256));
-    subplot(2,2,[3 4]);
-    stem(x1,h1,'r');hold on;stem(x2,h2,'b');
-    xlabel([num2str(lesionLabel) '    ' num2str(d2,'%.4f')]);
-    figure;
-    subplot(3,1,1)
-    stem(x1,h1,'r');hold on;stem(x2,h2,'b');
-    xlabel('pixel intensity');  ylabel('relative frequency')
-    title('Histogram [red: h1(inEdge), blue: h2(outEdge)]')
-    subplot(3,1,2)
-    stem(x1,h1+h2,'k');
-    xlabel('pixel intensity');  ylabel('relative frequency')
-    title('Histogram [h1+h2]')
-    subplot(3,1,3)
-    stem(x1,min(h1,h2),'b');
-    xlabel('pixel intensity');  ylabel('relative frequency')
-    title('Min of (h1,h2)')
-    pause;
-end
+% mask = poly2mask(poly.x, poly.y, h, w);
+% % curve = sqrt((poly.x-double(centerX)).^2+(poly.y-double(centerY)).^2);
+% % radius = min(20,ceil(0.5*mean(curve)));
+% radius = 5;
+% se = strel('disk',radius);
+% maskD = imdilate(mask,se);
+% maskE = imerode(mask,se);
+% % maskEdge = maskD-maskE;   % never used
+% maskInEdge = mask-maskE;
+% maskOutEdge = maskD-mask;
+% nulVal = min(min(Icrop))-2;
+% 
+% % tmpImg = Icrop.*maskEdge+((~maskEdge).*nulVal);
+% % tmpImg = tmpImg(:);
+% % tmpImg(find(tmpImg<=nulVal+1))=[];
+% 
+% tmpImg1 = Icrop.*maskInEdge+((~maskInEdge).*nulVal);
+% tmpImg1 = tmpImg1(:);
+% tmpImg1(tmpImg1<=nulVal+1)=[];
+% tmpImg2 = Icrop.*maskOutEdge+((~maskOutEdge).*nulVal);
+% tmpImg2 = tmpImg2(:);
+% tmpImg2(tmpImg2<=nulVal+1)=[];
+% 
+% binCnt = max(8, min(min(length(tmpImg1)/30, length(tmpImg2)/30), 30));
+% bins = linspace(min([tmpImg1; tmpImg2]), max([tmpImg1; tmpImg2]), binCnt);
+% [h1 ] = hist(tmpImg1, bins);
+% [h2 ] = hist(tmpImg2, bins);
+% h1=h1/sum(h1);h2=h2/sum(h2);    % normalization
+% % d1 = sum((h1-h2).^2./(h1+h2));
+% d2 = sum(min(h1,h2).*(h1+h2));
+% startPos = [startPos; length(res)+1];
+% res=[res; d2];
+% featureGroupList{length(featureGroupList)+1} = 'Histogram on Edge';
+% featureList{length(featureList)+1} = 'Histogram on Edge';
+% if 0
+%     % visualization
+%     close all;
+%     subplot(2,2,1);
+%     imgToShow = Icrop.*maskEdge;
+%     image(CTWindowing(imgToShow));axis image;axis off;colormap(gray(256));
+%     subplot(2,2,2);
+%     imgToShow(:,find(sum(maskEdge)==0))=[];
+%     imgToShow(find(sum(maskEdge')==0),:)=[];
+%     image(CTWindowing(imgToShow));axis image;axis off;colormap(gray(256));
+%     subplot(2,2,[3 4]);
+%     stem(x1,h1,'r');hold on;stem(x2,h2,'b');
+%     xlabel([num2str(lesionLabel) '    ' num2str(d2,'%.4f')]);
+%     figure;
+%     subplot(3,1,1)
+%     stem(x1,h1,'r');hold on;stem(x2,h2,'b');
+%     xlabel('pixel intensity');  ylabel('relative frequency')
+%     title('Histogram [red: h1(inEdge), blue: h2(outEdge)]')
+%     subplot(3,1,2)
+%     stem(x1,h1+h2,'k');
+%     xlabel('pixel intensity');  ylabel('relative frequency')
+%     title('Histogram [h1+h2]')
+%     subplot(3,1,3)
+%     stem(x1,min(h1,h2),'b');
+%     xlabel('pixel intensity');  ylabel('relative frequency')
+%     title('Min of (h1,h2)')
+%     pause;
+% end
 
 
 %% 13. Shape Features
@@ -470,20 +479,20 @@ end
 % featureGroupList = featureGroupList';
 
 %% histogram run length
-if APPEND_RAW_INTENSITY == 1
-    [val cnt] = s_run_length_code(d);
-    fv = double([val'; cnt']);
-    fv = fv(:);
-    fv_name = 'Raw Pixel Intensity (Value/Count)';
-    if GROUP_FV
-        startPos = [startPos; length(res)+1];
-        res = [res; fv];
-        featureGroupList{length(featureGroupList)+1} = 'Raw Pixel Intensity';
-    else
-        [res startPos featureGroupList] = ...
-            AppendFeatureList(fv, fv_name, res, startPos, featureGroupList);
-    end
-    [~,~,featureList] = AppendFeatureList(fv, fv_name, res, startPos, featureList);
-end
+% if APPEND_RAW_INTENSITY == 1
+%     [val cnt] = s_run_length_code(d);
+%     fv = double([val'; cnt']);
+%     fv = fv(:);
+%     fv_name = 'Raw Pixel Intensity (Value/Count)';
+%     if GROUP_FV
+%         startPos = [startPos; length(res)+1];
+%         res = [res; fv];
+%         featureGroupList{length(featureGroupList)+1} = 'Raw Pixel Intensity';
+%     else
+%         [res startPos featureGroupList] = ...
+%             AppendFeatureList(fv, fv_name, res, startPos, featureGroupList);
+%     end
+%     [~,~,featureList] = AppendFeatureList(fv, fv_name, res, startPos, featureList);
+% end
 
 return;
